@@ -9,8 +9,10 @@ bindir      = /usr/local/bin
 mandir      = /usr/local/man
 
 CC      = gcc
-CFLAGS  = -g -Wall -DPROGRAM_VERSION=\"1.0\" -DPROGRAM_NAME=\"mmaltest\" -I/opt/vc/include -I/opt/vc/include/interface/vcos/pthreads/ -I/opt/vc/include/interface/vmcs_host/linux/
-LDFLAGS = -L/opt/vc/lib -lmmal -lbcm_host
+#CFLAGS  = -g -Wall -DPROGRAM_VERSION=\"1.0\" -DPROGRAM_NAME=\"mmaltest\" -I/opt/vc/include -I/opt/vc/include/interface/vcos/pthreads/ -I/opt/vc/include/interface/vmcs_host/linux/
+CFLAGS  = -g -Wall -DPROGRAM_VERSION=\"1.0\" -DPROGRAM_NAME=\"mmaltest\" -I../userland -I../userland/host_applications/linux/libs/bcm_host/include/ -I/opt/vc/include/interface/vcos/pthreads/ -I/opt/vc/include/interface/vmcs_host/linux/
+#LDFLAGS = -L/opt/vc/lib -lmmal -lbcm_host
+LDFLAGS = -L/home/pi/src/userland/build/lib -lmmal -lmmal_core -lmmal_util -lbcm_host 
 
 OBJS  = mmaltest.o log.o
 
