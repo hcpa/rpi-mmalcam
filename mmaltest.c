@@ -10,9 +10,60 @@
 #include "log.h"
 
 
+
 static void encoder_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
 {
+	int complete = 0;
+	
+    PORT_USERDATA *pData = (PORT_USERDATA *)port->userdata;	
+	
+	DEBUG("callback aufgerufen");
+	if( pData )
+	{
+		int bytes_written = buffer->length;
+		if( buffer->length && pData->file_handle )
+		{
+			mmal_buffer_header_mem_lock( buffer );
+			bytes_written = fwrite(buffer->data, 1, buffer->length, pData->file_handle );
+			mmal_buffer_header_mem_unlock( buffer );
+		}
+		
+		if( bytes_written != buffer->length )
+		{
+			ERROR("unable to write %d bytes from buffer to file", buffer->length );
+			complete = 1;
+		}
+		
+		if( buffer->flags & (MMAL_BUFFER_HEADER_FLAG_FRAME_END | MMAL_BUFFER_HEADER_FLAG_TRANSMISSION_FAILED) )
+			complete = 1;
+	}
+	else
+	{
+		ERROR("callback received encoder buffer with no user data");
+	}
+
 	mmal_buffer_header_release(buffer);
+	
+    // TODO I have no idea what this is doing, the "manual" in mmal.h doesn't mention it
+	// but the thing brakes without so let's do it for now
+    if( port->is_enabled )
+    {
+       MMAL_STATUS_T status = MMAL_SUCCESS;
+       MMAL_BUFFER_HEADER_T *new_buffer;
+
+       new_buffer = mmal_queue_get( pData->encoder_pool->queue );
+
+       if( new_buffer )
+          status = mmal_port_send_buffer(port, new_buffer);
+
+       if (!new_buffer || status != MMAL_SUCCESS)
+          ERROR("Unable to return a buffer to the encoder port");
+    }
+		
+    if (complete)
+       vcos_semaphore_post(&(pData->complete_semaphore));
+	
+	DEBUG("callback return");
 }
 
 int main(int argc, char *argv[])
@@ -21,10 +72,15 @@ int main(int argc, char *argv[])
 	MMAL_COMPONENT_T *encoder_component;
     MMAL_CONNECTION_T *encoder_connection;
 	MMAL_STATUS_T status;
+	VCOS_STATUS_T vcos_status;
 	MMAL_ES_FORMAT_T *format_out;
 	MMAL_POOL_T *pool_out;
 	MMAL_PORT_T *still_port = NULL;
 	MMAL_PORT_T *encoder_input_port = NULL, *encoder_output_port = NULL;
+    PORT_USERDATA callback_data;
+	FILE *output_file;
+	int num, q;
+
 	
 
 	// TODO
@@ -37,6 +93,7 @@ int main(int argc, char *argv[])
 	*  Kamera-Komponente
 	*
 	*/
+	DEBUG("Starting camera component creation stage");
 
 	status = mmal_component_create( MMAL_COMPONENT_DEFAULT_CAMERA, &camera_component);
 	if( status != MMAL_SUCCESS )
@@ -56,10 +113,8 @@ int main(int argc, char *argv[])
 
 	format_out = still_port->format;
 	
-	format_out->encoding = MMAL_ENCODING_BGR24;
-	format_out->encoding_variant = MMAL_ENCODING_BGR24;
-	// format_out->encoding = MMAL_ENCODING_I420;
-	// format_out->encoding_variant = MMAL_ENCODING_I420;
+    format_out->encoding = MMAL_ENCODING_OPAQUE;
+
 	format_out->es->video.width = MAX_CAM_WIDTH;
 	format_out->es->video.height = MAX_CAM_HEIGHT;
 	format_out->es->video.crop.x = 0;
@@ -99,6 +154,7 @@ int main(int argc, char *argv[])
 	* Encoder-Komponente
 	*
 	*/
+	DEBUG("Starting encoder component creation stage");
 	
 	status = mmal_component_create( MMAL_COMPONENT_DEFAULT_IMAGE_ENCODER, &encoder_component );
 	if( status != MMAL_SUCCESS )
@@ -154,7 +210,7 @@ int main(int argc, char *argv[])
 
     /* Create pool of buffer headers for the output port to consume */
     pool_out = mmal_port_pool_create(encoder_output_port, encoder_output_port->buffer_num, encoder_output_port->buffer_size);
-
+	
     if (!pool_out)
     {
        ERROR("Failed to create buffer header pool for encoder output port %s", encoder_output_port->name);
@@ -188,18 +244,88 @@ int main(int argc, char *argv[])
 		goto error;
 	}
 	
-	
-	
     if (status != MMAL_SUCCESS)
     {
        ERROR("%s: Failed to connect camera video port to encoder input", __func__);
        goto error;
     }
+
+	/*
+	* Ende Verbindung Still-Port Kamera zu Encoder Input-Port
+	*
+	*/
+
+
+	callback_data.encoder_pool = pool_out;
+	callback_data.file_handle = 0;
+
+	DEBUG("creating semaphore");
+    vcos_status = vcos_semaphore_create(&callback_data.complete_semaphore, "mmalcam-sem", 0);
+    vcos_assert(vcos_status == VCOS_SUCCESS);
+	
+	
+	DEBUG("sleeping for a second or so to have exposure adjust automatically");
+	DEBUG("next frames can go with a much shorter exposure like 30ms");
+    vcos_sleep(50);
+
+	output_file = fopen("mmalimage.jpg", "wb");
+	if( !output_file )
+	{
+		ERROR("unable to open mmalimage.jpg");
+		goto error;
+	}
+	
+	callback_data.file_handle = output_file;
+	
+    encoder_output_port->userdata = (struct MMAL_PORT_USERDATA_T *)&callback_data;
+	
+	
+	DEBUG("enabling encoder output port w/ callback");
+	mmal_port_enable( encoder_output_port, encoder_callback );
+	
+	
+	DEBUG("queue_length-Kram");
+    num = mmal_queue_length(pool_out->queue);
+
+    for ( q=0; q<num; q++ )
+    {
+       MMAL_BUFFER_HEADER_T *buffer = mmal_queue_get( pool_out->queue );
+
+       if (!buffer)
+	   {
+          ERROR("Unable to get a required buffer %d from pool queue", q);
+		  goto error;
+	  }
+
+       if (mmal_port_send_buffer(encoder_output_port, buffer)!= MMAL_SUCCESS)
+	   {
+          ERROR("Unable to send a buffer to encoder output port (%d)", q);
+		  goto error;
+	  }
+    }
+	
+	DEBUG("starting capture");
+    if ( mmal_port_parameter_set_boolean( still_port, MMAL_PARAMETER_CAPTURE, 1 ) != MMAL_SUCCESS)
+    {
+       ERROR("Failed to start capture");
+    }
+    else
+    {
+       // Wait for capture to complete
+       // For some reason using vcos_semaphore_wait_timeout sometimes returns immediately with bad parameter error
+       // even though it appears to be all correct, so reverting to untimed one until figure out why its erratic
+		DEBUG("wait semaphore");	
+		vcos_semaphore_wait( &callback_data.complete_semaphore );
+		DEBUG( "Finished capture" );
+    }
+	
+	
+	DEBUG("end capture first shot");
+
 		
 	mmal_component_destroy( encoder_component );
     mmal_component_destroy( camera_component );
 
-	printf("Hello World!\n");
 	return 0;
 
 error:	
