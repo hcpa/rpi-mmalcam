@@ -17,7 +17,7 @@ static void encoder_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
 	
     PORT_USERDATA *pData = (PORT_USERDATA *)port->userdata;	
 	
-	DEBUG("callback aufgerufen");
+	// DEBUG("callback aufgerufen");
 	if( pData )
 	{
 		int bytes_written = buffer->length;
@@ -63,7 +63,7 @@ static void encoder_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
     if (complete)
        vcos_semaphore_post(&(pData->complete_semaphore));
 	
-	DEBUG("callback return");
+	// DEBUG("callback return");
 }
 
 int main(int argc, char *argv[])
@@ -167,7 +167,7 @@ int main(int argc, char *argv[])
     if (!encoder_component->input_num || !encoder_component->output_num)
     {
        ERROR("JPEG encoder doesn't have input/output ports");
-       goto error; //TODO: we have to close down the camera in case of error
+       goto error; 
     }
 	
     encoder_input_port = encoder_component->input[0];
@@ -265,8 +265,10 @@ int main(int argc, char *argv[])
 	
 	
 	DEBUG("sleeping for a second or so to have exposure adjust automatically");
-	DEBUG("next frames can go with a much shorter exposure like 30ms");
-    vcos_sleep(50);
+	// results show: sleeping time can be much shorter, tested down to 2ms
+	// although then exposure and awb seem to be somewhat off and image size huge 
+	// next frames can go with a much shorter exposure like 30ms
+    vcos_sleep(200);
 
 	output_file = fopen("mmalimage.jpg", "wb");
 	if( !output_file )
@@ -321,6 +323,68 @@ int main(int argc, char *argv[])
 	
 	
 	DEBUG("end capture first shot");
+	
+    vcos_sleep(1000);
+	
+	/*
+	* Second Frame
+	*
+	*/
+	output_file = fopen("mmalimage2.jpg", "wb");
+	if( !output_file )
+	{
+		ERROR("unable to open mmalimage2.jpg");
+		goto error;
+	}
+	
+	callback_data.file_handle = output_file;
+	
+	
+	// DEBUG("queue_length-Kram");
+    num = mmal_queue_length(pool_out->queue);
+
+	// TODO I don't really understand what this does.
+    for ( q=0; q<num; q++ )
+    {
+       MMAL_BUFFER_HEADER_T *buffer = mmal_queue_get( pool_out->queue );
+
+       if (!buffer)
+	   {
+          ERROR("Unable to get a required buffer %d from pool queue", q);
+		  goto error;
+	  }
+
+       if (mmal_port_send_buffer(encoder_output_port, buffer)!= MMAL_SUCCESS)
+	   {
+          ERROR("Unable to send a buffer to encoder output port (%d)", q);
+		  goto error;
+	  }
+    }
+	
+	DEBUG("starting 2nd capture");
+    if ( mmal_port_parameter_set_boolean( still_port, MMAL_PARAMETER_CAPTURE, 1 ) != MMAL_SUCCESS)
+    {
+       ERROR("Failed to start 2nd capture");
+    }
+    else
+    {
+       // Wait for capture to complete
+       // For some reason using vcos_semaphore_wait_timeout sometimes returns immediately with bad parameter error
+       // even though it appears to be all correct, so reverting to untimed one until figure out why its erratic
+		DEBUG("wait semaphore");	
+		vcos_semaphore_wait( &callback_data.complete_semaphore );
+		DEBUG( "Finished capture" );
+    }
+	
+	
+	DEBUG("end capture second shot");
+
+
+    /*
+	* End second frame
+	*
+	*/
+	
 
 		
 	mmal_component_destroy( encoder_component );

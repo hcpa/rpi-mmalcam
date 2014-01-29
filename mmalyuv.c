@@ -11,7 +11,7 @@
 
 
 
-static void encoder_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
+static void y_writer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
 {
 	int complete = 0;
 	
@@ -20,20 +20,23 @@ static void encoder_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
 	// DEBUG("callback aufgerufen");
 	if( pData )
 	{
-		int bytes_written = buffer->length;
-		if( buffer->length && pData->file_handle )
+		if( buffer->length && pData->image_buffer && pData->bytes_written < pData->max_bytes )
 		{
+			uint32_t to_write = 0;
+			
+			if( pData->bytes_written + buffer->length > pData->max_bytes )
+				to_write = pData->max_bytes - pData->bytes_written;
+			 else
+				to_write = buffer->length;
+			
 			mmal_buffer_header_mem_lock( buffer );
-			bytes_written = fwrite(buffer->data, 1, buffer->length, pData->file_handle );
+			memcpy( pData->image_buffer+pData->bytes_written, buffer->data, to_write );
 			mmal_buffer_header_mem_unlock( buffer );
+
+			pData->bytes_written += to_write;
 		}
 		
-		if( bytes_written != buffer->length )
-		{
-			ERROR("unable to write %d bytes from buffer to file", buffer->length );
-			complete = 1;
-		}
-		
+	
 		if( buffer->flags & (MMAL_BUFFER_HEADER_FLAG_FRAME_END | MMAL_BUFFER_HEADER_FLAG_TRANSMISSION_FAILED) )
 			complete = 1;
 	}
@@ -78,7 +81,7 @@ int main(int argc, char *argv[])
 	MMAL_PORT_T *still_port = NULL;
 	MMAL_PORT_T *encoder_input_port = NULL, *encoder_output_port = NULL;
     PORT_USERDATA callback_data;
-	FILE *output_file;
+	void *img1, *img2;
 	int num, q;
 
 	
@@ -257,7 +260,7 @@ int main(int argc, char *argv[])
 
 
 	callback_data.encoder_pool = pool_out;
-	callback_data.file_handle = 0;
+	callback_data.image_buffer = NULL;
 
 	DEBUG("creating semaphore");
     vcos_status = vcos_semaphore_create(&callback_data.complete_semaphore, "mmalcam-sem", 0);
@@ -270,21 +273,23 @@ int main(int argc, char *argv[])
 	// next frames can go with a much shorter exposure like 30ms
     vcos_sleep(200);
 
-	output_file = fopen("mmalimage.jpg", "wb");
-	if( !output_file )
+	img1 = calloc( MAX_CAM_WIDTH_PADDED * MAX_CAM_HEIGHT_PADDED, sizeof( uint8_t ));
+	if( !img1 )
 	{
-		ERROR("unable to open mmalimage.jpg");
+		ERROR("out of memory img1");
 		goto error;
 	}
 	
-	callback_data.file_handle = output_file;
+	callback_data.image_buffer = img1;
+	callback_data.max_bytes = MAX_CAM_WIDTH_PADDED * MAX_CAM_HEIGHT_PADDED;
+	callback_data.bytes_written = 0;
 	
     encoder_output_port->userdata = (struct MMAL_PORT_USERDATA_T *)&callback_data;
 	
 	
 	DEBUG("enabling encoder output port w/ callback");
-	mmal_port_enable( encoder_output_port, encoder_callback );
-	
+	mmal_port_enable( encoder_output_port, y_writer_callback );
+
 	
 	DEBUG("queue_length-Kram");
     num = mmal_queue_length(pool_out->queue);
@@ -321,6 +326,7 @@ int main(int argc, char *argv[])
 		DEBUG( "Finished capture" );
     }
 	
+	DEBUG("Callback_data max_bytes %d bytes_written %d", callback_data.max_bytes, callback_data.bytes_written );
 	
 	DEBUG("end capture first shot");
 	
@@ -330,14 +336,16 @@ int main(int argc, char *argv[])
 	* Second Frame
 	*
 	*/
-	output_file = fopen("mmalimage2.jpg", "wb");
-	if( !output_file )
+	img2 = calloc( MAX_CAM_WIDTH_PADDED * MAX_CAM_HEIGHT_PADDED, sizeof( uint8_t ));
+	if( !img2 )
 	{
-		ERROR("unable to open mmalimage2.jpg");
+		ERROR("out of memory img2");
 		goto error;
 	}
 	
-	callback_data.file_handle = output_file;
+	callback_data.image_buffer = img2;
+	callback_data.max_bytes = MAX_CAM_WIDTH_PADDED * MAX_CAM_HEIGHT_PADDED;
+	callback_data.bytes_written = 0;
 	
 	
 	// DEBUG("queue_length-Kram");
@@ -375,10 +383,13 @@ int main(int argc, char *argv[])
 		vcos_semaphore_wait( &callback_data.complete_semaphore );
 		DEBUG( "Finished capture" );
     }
-	
+
+	DEBUG("Callback_data max_bytes %d bytes_written %d", callback_data.max_bytes, callback_data.bytes_written );	
 	
 	DEBUG("end capture second shot");
 
+	free( img1 );
+	free( img2 );
 
     /*
 	* End second frame

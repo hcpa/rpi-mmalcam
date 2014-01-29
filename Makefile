@@ -15,8 +15,9 @@ CFLAGS  = -g -Wall -DPROGRAM_VERSION=\"1.0\" -DPROGRAM_NAME=\"mmaltest\" -I../us
 LDFLAGS = -L/home/pi/src/userland/build/lib -lmmal -lmmal_core -lmmal_util -lbcm_host -lvcos
 
 OBJS  = mmaltest.o log.o
+OBJYUV = mmalyuv.o log.o
 
-all: mmaltest
+all: mmaltest mmalyuv
 
 install: all
 	mkdir -p ${DESTDIR}${bindir}
@@ -24,6 +25,9 @@ install: all
 
 mmaltest: $(OBJS)
 	$(CC) -o mmaltest $(OBJS) $(LDFLAGS)
+
+mmalyuv: $(OBJYUV)
+	$(CC) -o mmalyuv $(OBJYUV) $(LDFLAGS)
 
 .c.o:
 	${CC} ${CFLAGS} -c $< -o $@
