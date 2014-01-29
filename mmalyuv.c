@@ -54,7 +54,7 @@ static void y_writer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
        MMAL_STATUS_T status = MMAL_SUCCESS;
        MMAL_BUFFER_HEADER_T *new_buffer;
 
-       new_buffer = mmal_queue_get( pData->encoder_pool->queue );
+       new_buffer = mmal_queue_get( pData->camera_pool->queue );
 
        if( new_buffer )
           status = mmal_port_send_buffer(port, new_buffer);
@@ -72,14 +72,11 @@ static void y_writer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
 int main(int argc, char *argv[])
 {
 	MMAL_COMPONENT_T *camera_component;
-	MMAL_COMPONENT_T *encoder_component;
-    MMAL_CONNECTION_T *encoder_connection;
 	MMAL_STATUS_T status;
 	VCOS_STATUS_T vcos_status;
 	MMAL_ES_FORMAT_T *format_out;
 	MMAL_POOL_T *pool_out;
 	MMAL_PORT_T *still_port = NULL;
-	MMAL_PORT_T *encoder_input_port = NULL, *encoder_output_port = NULL;
     PORT_USERDATA callback_data;
 	void *img1, *img2;
 	int num, q;
@@ -116,7 +113,8 @@ int main(int argc, char *argv[])
 
 	format_out = still_port->format;
 	
-    format_out->encoding = MMAL_ENCODING_OPAQUE;
+    format_out->encoding = MMAL_ENCODING_BGR24;
+    format_out->encoding_variant = MMAL_ENCODING_BGR24;
 
 	format_out->es->video.width = MAX_CAM_WIDTH;
 	format_out->es->video.height = MAX_CAM_HEIGHT;
@@ -127,7 +125,9 @@ int main(int argc, char *argv[])
 	format_out->es->video.frame_rate.num = STILLS_FRAME_RATE_NUM;
 	format_out->es->video.frame_rate.den = STILLS_FRAME_RATE_DEN;
 	
-	still_port->buffer_num  = still_port->buffer_num_min;
+	if( still_port->buffer_num < still_port->buffer_num_min )
+		still_port->buffer_num  = still_port->buffer_num_min;
+
 	still_port->buffer_size = still_port->buffer_size_recommended;
 
 	status = mmal_port_format_commit( still_port );
@@ -146,120 +146,21 @@ int main(int argc, char *argv[])
 		return(-1);
 	}
 	
+    pool_out = mmal_port_pool_create(still_port, still_port->buffer_num, still_port->buffer_size);
+	
+    if (!pool_out)
+    {
+       ERROR("Failed to create buffer header pool for encoder output port %s", still_port->name);
+	   goto error;
+    }
+	
 	/*
 	* Ende Kamera–Komponente
 	*
 	*/
 	
 
-	
-	/*
-	* Encoder-Komponente
-	*
-	*/
-	DEBUG("Starting encoder component creation stage");
-	
-	status = mmal_component_create( MMAL_COMPONENT_DEFAULT_IMAGE_ENCODER, &encoder_component );
-	if( status != MMAL_SUCCESS )
-	{
-		ERROR("cannot create component %s", MMAL_COMPONENT_DEFAULT_IMAGE_ENCODER );
-		mmal_component_destroy( camera_component );
-		return (-1);
-	}
-	
-    if (!encoder_component->input_num || !encoder_component->output_num)
-    {
-       ERROR("JPEG encoder doesn't have input/output ports");
-       goto error; 
-    }
-	
-    encoder_input_port = encoder_component->input[0];
-    encoder_output_port = encoder_component->output[0];
-	
-    // TODO: what does that mean? 
-   // We want same format on input and output
-    mmal_format_copy(encoder_output_port->format, encoder_input_port->format);
-	
-    encoder_output_port->format->encoding = MMAL_ENCODING_JPEG;
-
-	encoder_output_port->buffer_num  = encoder_output_port->buffer_num_min;
-	encoder_output_port->buffer_size = encoder_output_port->buffer_size_recommended;
-
-    status = mmal_port_format_commit(encoder_output_port);
-
-    if (status != MMAL_SUCCESS)
-    {
-       ERROR("Unable to set format on encoder output port");
-       goto error;
-    }
-
-    // Set the JPEG quality level
-    status = mmal_port_parameter_set_uint32(encoder_output_port, MMAL_PARAMETER_JPEG_Q_FACTOR, 85 );
-
-    if (status != MMAL_SUCCESS)
-    {
-       ERROR("Unable to set JPEG quality");
-       goto error;
-    }
-
-    //  Enable component
-    status = mmal_component_enable( encoder_component );
-
-    if (status  != MMAL_SUCCESS )
-    {
-       ERROR("Unable to enable video encoder component");
-       goto error;
-    }
-
-    /* Create pool of buffer headers for the output port to consume */
-    pool_out = mmal_port_pool_create(encoder_output_port, encoder_output_port->buffer_num, encoder_output_port->buffer_size);
-	
-    if (!pool_out)
-    {
-       ERROR("Failed to create buffer header pool for encoder output port %s", encoder_output_port->name);
-	   goto error;
-    }
-
-	/*
-	*  Ende Encoder-Komponente
-	*
-	*/
-	
-	
-	/* 
-	* Verbindung Still-Port Kamera zu Encoder Input-Port
-	*
-	*/
-	DEBUG("Starting component connection stage");
-	
-    status =  mmal_connection_create( &encoder_connection, still_port, encoder_input_port, 
-										MMAL_CONNECTION_FLAG_TUNNELLING | MMAL_CONNECTION_FLAG_ALLOCATION_ON_INPUT);
-	if (status != MMAL_SUCCESS)
-	{
-		ERROR("unable to create connection between still port and encoder input port");
-		goto error;
-	}
-	
-	status = mmal_connection_enable( encoder_connection );
-	if( status != MMAL_SUCCESS )
-	{
-		ERROR("unable to enable connection");
-		goto error;
-	}
-	
-    if (status != MMAL_SUCCESS)
-    {
-       ERROR("%s: Failed to connect camera video port to encoder input", __func__);
-       goto error;
-    }
-
-	/*
-	* Ende Verbindung Still-Port Kamera zu Encoder Input-Port
-	*
-	*/
-
-
-	callback_data.encoder_pool = pool_out;
+	callback_data.camera_pool = pool_out;
 	callback_data.image_buffer = NULL;
 
 	DEBUG("creating semaphore");
@@ -284,11 +185,16 @@ int main(int argc, char *argv[])
 	callback_data.max_bytes = MAX_CAM_WIDTH_PADDED * MAX_CAM_HEIGHT_PADDED;
 	callback_data.bytes_written = 0;
 	
-    encoder_output_port->userdata = (struct MMAL_PORT_USERDATA_T *)&callback_data;
+    still_port->userdata = (struct MMAL_PORT_USERDATA_T *)&callback_data;
 	
 	
 	DEBUG("enabling encoder output port w/ callback");
-	mmal_port_enable( encoder_output_port, y_writer_callback );
+	status = mmal_port_enable( still_port, y_writer_callback );
+	if( status != MMAL_SUCCESS )
+	{
+		ERROR("failed to enable camera still output port");
+		goto error;
+	}
 
 	
 	DEBUG("queue_length-Kram");
@@ -304,7 +210,7 @@ int main(int argc, char *argv[])
 		  goto error;
 	  }
 
-       if (mmal_port_send_buffer(encoder_output_port, buffer)!= MMAL_SUCCESS)
+       if (mmal_port_send_buffer(still_port, buffer)!= MMAL_SUCCESS)
 	   {
           ERROR("Unable to send a buffer to encoder output port (%d)", q);
 		  goto error;
@@ -347,6 +253,7 @@ int main(int argc, char *argv[])
 	callback_data.max_bytes = MAX_CAM_WIDTH_PADDED * MAX_CAM_HEIGHT_PADDED;
 	callback_data.bytes_written = 0;
 	
+    still_port->userdata = (struct MMAL_PORT_USERDATA_T *)&callback_data;
 	
 	// DEBUG("queue_length-Kram");
     num = mmal_queue_length(pool_out->queue);
@@ -362,7 +269,7 @@ int main(int argc, char *argv[])
 		  goto error;
 	  }
 
-       if (mmal_port_send_buffer(encoder_output_port, buffer)!= MMAL_SUCCESS)
+       if (mmal_port_send_buffer(still_port, buffer)!= MMAL_SUCCESS)
 	   {
           ERROR("Unable to send a buffer to encoder output port (%d)", q);
 		  goto error;
@@ -398,13 +305,11 @@ int main(int argc, char *argv[])
 	
 
 		
-	mmal_component_destroy( encoder_component );
     mmal_component_destroy( camera_component );
 
 	return 0;
 
 error:	
-	mmal_component_destroy( encoder_component );
 	mmal_component_destroy( camera_component );
 	
 	return (-1);

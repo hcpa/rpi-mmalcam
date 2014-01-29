@@ -20,7 +20,7 @@ typedef struct
    uint32_t max_bytes;
    uint32_t bytes_written;
    VCOS_SEMAPHORE_T complete_semaphore; /// semaphore which is posted when we reach end of frame (indicates end of capture or fault)
-   MMAL_POOL_T *encoder_pool;
+   MMAL_POOL_T *camera_pool;
 } PORT_USERDATA;
 
 
