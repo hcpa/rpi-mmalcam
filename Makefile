@@ -12,10 +12,9 @@ CC      = gcc
 #CFLAGS  = -g -Wall -DPROGRAM_VERSION=\"1.0\" -DPROGRAM_NAME=\"mmaltest\" -I/opt/vc/include -I/opt/vc/include/interface/vcos/pthreads/ -I/opt/vc/include/interface/vmcs_host/linux/
 CFLAGS  = -g -Wall -DPROGRAM_VERSION=\"1.0\" -DPROGRAM_NAME=\"mmaltest\" -I../userland -I../userland/host_applications/linux/libs/bcm_host/include/ -I/opt/vc/include/interface/vcos/pthreads/ -I/opt/vc/include/interface/vmcs_host/linux/
 #LDFLAGS = -L/opt/vc/lib -lmmal -lbcm_host
-LDFLAGS = -L/home/pi/src/userland/build/lib -lmmal -lmmal_core -lmmal_util -lbcm_host -lvcos
+LDFLAGS = -L/home/pi/src/userland/build/lib -lmmal -lmmal_core -lmmal_util -lbcm_host -lvcos -lgd -lfftw3f
 
-OBJS  = mmaltest.o log.o
-OBJYUV = mmalyuv.o log.o
+OBJS  = log.o dbg_image.o fft.o
 
 all: mmaltest mmalyuv
 
@@ -23,11 +22,11 @@ install: all
 	mkdir -p ${DESTDIR}${bindir}
 	install -m 755 test ${DESTDIR}${bindir}
 
-mmaltest: $(OBJS)
-	$(CC) -o mmaltest $(OBJS) $(LDFLAGS)
+mmaltest: mmaltest.o $(OBJS)
+	$(CC) -o mmaltest mmaltest.o $(OBJS) $(LDFLAGS)
 
-mmalyuv: $(OBJYUV)
-	$(CC) -o mmalyuv $(OBJYUV) $(LDFLAGS)
+mmalyuv: mmalyuv.o $(OBJS)
+	$(CC) -o mmalyuv mmalyuv.o $(OBJS) $(LDFLAGS)
 
 .c.o:
 	${CC} ${CFLAGS} -c $< -o $@

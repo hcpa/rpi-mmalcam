@@ -8,7 +8,8 @@
 #include <bcm_host.h>
 #include "mmalyuv.h"
 #include "log.h"
-
+#include "dbg_image.h"
+#include "fft.h"
 
 
 static void y_writer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
@@ -113,8 +114,8 @@ int main(int argc, char *argv[])
 
 	format_out = still_port->format;
 	
-    format_out->encoding = MMAL_ENCODING_BGR24;
-    format_out->encoding_variant = MMAL_ENCODING_BGR24;
+    format_out->encoding = MMAL_ENCODING_I420;
+    format_out->encoding_variant = MMAL_ENCODING_I420;
 
 	format_out->es->video.width = MAX_CAM_WIDTH;
 	format_out->es->video.height = MAX_CAM_HEIGHT;
@@ -172,7 +173,7 @@ int main(int argc, char *argv[])
 	// results show: sleeping time can be much shorter, tested down to 2ms
 	// although then exposure and awb seem to be somewhat off and image size huge 
 	// next frames can go with a much shorter exposure like 30ms
-    vcos_sleep(200);
+    vcos_sleep(300);
 
 	img1 = calloc( MAX_CAM_WIDTH_PADDED * MAX_CAM_HEIGHT_PADDED, sizeof( uint8_t ));
 	if( !img1 )
@@ -294,6 +295,11 @@ int main(int argc, char *argv[])
 	DEBUG("Callback_data max_bytes %d bytes_written %d", callback_data.max_bytes, callback_data.bytes_written );	
 	
 	DEBUG("end capture second shot");
+	
+	DEBUG("dumping frame 1");
+	y_int_save( img1, MAX_CAM_WIDTH_PADDED, MAX_CAM_HEIGHT_PADDED, "frame1.jpg" );
+	DEBUG("dumping frame 2");
+	y_int_save( img2, MAX_CAM_WIDTH_PADDED, MAX_CAM_HEIGHT_PADDED, "frame2.jpg" );
 
 	free( img1 );
 	free( img2 );
