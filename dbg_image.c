@@ -45,7 +45,6 @@ uint32_t y_int_save( uint8_t *data, uint32_t w, uint32_t h, char *name )
 		}
 	}
 	
-	MSG("Writing JPEG image to '%s'.", name);
 	gdImageJpeg(image, f, 255);
 
 	gdImageDestroy(image);
@@ -101,7 +100,6 @@ uint32_t y_float_save( float *data, uint32_t w, uint32_t h, char *name )
 		}
 	}
 	
-	MSG("Writing JPEG image to '%s'.", name);
 	gdImageJpeg(image, f, 255);
 
 	gdImageDestroy(image);
@@ -166,7 +164,6 @@ uint32_t y_compley_save( fftwf_complex *data, uint32_t real, uint32_t w, uint32_
 		}
 	}
 	
-	MSG("Writing JPEG image to '%s'.", name);
 	gdImageJpeg(image, f, 255);
 
 	gdImageDestroy(image);

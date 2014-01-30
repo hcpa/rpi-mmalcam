@@ -529,7 +529,7 @@ pixPhaseCorrelation(fpix_y_t       *pixr,
 	// complex_save(outputd, 1, pixr->width/2+1,pixr->height,"outputd-re.jpg");
 	// complex_save(outputd, 0, pixr->width/2+1,pixr->height,"outputd-im.jpg");
 	
-	y_float_save(dpix->data, dpix->width, dpix->height,"revFFTresult.jpg");
+//	y_float_save(dpix->data, dpix->width, dpix->height,"revFFTresult.jpg");
 	
 	fpixGetMax(dpix, ppeak, pxloc, pyloc);
 	

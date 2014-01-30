@@ -82,8 +82,11 @@ int main(int argc, char *argv[])
     PORT_USERDATA callback_data;
 	struct timespec time_before, time_after;
 	pix_y_t img1, img2;
+	fpix_y_t *fimg1, *fimg2;
 	fftwf_complex *fft_frame1, *fft_frame2;
 	int num, q;
+	float peak;
+	int32_t xloc, yloc;
 
 	
 
@@ -285,19 +288,15 @@ int main(int argc, char *argv[])
 	  }
     }
 	
-	DEBUG("start fft frame 1");
+	MSG("start fft frame 1");
 
-	if( clock_gettime(CLOCK_REALTIME,&time_before) )
-	{
-		ERROR("cannot get time %s", strerror(errno));
-	}
-	printf("%ld, %ld\n",time_before.tv_sec, time_before.tv_nsec);
+	clock_gettime(CLOCK_MONOTONIC,&time_before);
+	
 	fft_frame1 = pixDFT( &img1 );
-	if( clock_gettime(CLOCK_REALTIME,&time_after) )
-	{
-		ERROR("cannot get time %s", strerror(errno));
-	}
-	printf("%ld, %ld\n",time_after.tv_sec, time_after.tv_nsec);
+	
+	clock_gettime(CLOCK_MONOTONIC,&time_after);
+	MSG("%ld milliseconds",(time_after.tv_sec-time_before.tv_sec)*1000l + (time_after.tv_nsec-time_before.tv_nsec)/1000000);
+
 	fftwf_free( fft_frame1 );
 	
 	DEBUG( "fft frame 1 done" );
@@ -323,11 +322,31 @@ int main(int argc, char *argv[])
 	
 	DEBUG("end capture second shot");
 	
+	DEBUG("convert boths images to fpix");
+	fimg1 = pixConvertToFPix( &img1 );
+	fimg2 = pixConvertToFPix( &img2 );
+
+	DEBUG("phase correlation");
+
+	clock_gettime(CLOCK_MONOTONIC,&time_before);
+
+	if( pixPhaseCorrelation( fimg1, fimg2, &peak, &xloc, &yloc ) )
+		ERROR("cannot phase correlate");		
+	else
+    	MSG("peak: %f, x: %d, y:%d", peak, xloc, yloc );
+
+	clock_gettime(CLOCK_MONOTONIC,&time_after);
+	MSG("%ld milliseconds",(time_after.tv_sec-time_before.tv_sec)*1000l + (time_after.tv_nsec-time_before.tv_nsec)/1000000);
+
+
 	DEBUG("dumping frame 1");
 	y_int_save( img1.data, MAX_CAM_WIDTH_PADDED, MAX_CAM_HEIGHT_PADDED, "frame1.jpg" );
 	DEBUG("dumping frame 2");
 	y_int_save( img2.data, MAX_CAM_WIDTH_PADDED, MAX_CAM_HEIGHT_PADDED, "frame2.jpg" );
 
+
+	free( fimg1 );
+	free( fimg2 );
 	free( img1.data );
 	free( img2.data );
 

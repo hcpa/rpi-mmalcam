@@ -8,14 +8,14 @@ Done
 - remove encoder
 - write to memory buffer
 - debug-write Y-data to jpeg w/ gd
-- fft Y-data first frame
-- rough timing fft
 - capture second frame
+- fft Y-data first frame
+- timing fft
+- calculate phase shift
 
 Todo
-- better timing fft
-- calculate phase shift
-//- fft second frame
-- timing for all
+- control callback / set camera parameters like exposure time, white balance, iso
+- improve phase shift for higher resolutions. works fine up to 1536 x 1152
+- MAKE MUCH FASTER!
 - add/average multiple images
-- low light performance - check/set exposure/wb
+- low light performance
