@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <time.h>
 #include <interface/mmal/mmal.h>
 #include <interface/mmal/mmal_encodings.h>
 #include <interface/mmal/util/mmal_default_components.h>
@@ -79,7 +80,9 @@ int main(int argc, char *argv[])
 	MMAL_POOL_T *pool_out;
 	MMAL_PORT_T *still_port = NULL;
     PORT_USERDATA callback_data;
-	void *img1, *img2;
+	struct timespec time_before, time_after;
+	pix_y_t img1, img2;
+	fftwf_complex *fft_frame1, *fft_frame2;
 	int num, q;
 
 	
@@ -175,14 +178,16 @@ int main(int argc, char *argv[])
 	// next frames can go with a much shorter exposure like 30ms
     vcos_sleep(300);
 
-	img1 = calloc( MAX_CAM_WIDTH_PADDED * MAX_CAM_HEIGHT_PADDED, sizeof( uint8_t ));
-	if( !img1 )
+	img1.width = MAX_CAM_WIDTH_PADDED;
+	img1.height = MAX_CAM_HEIGHT_PADDED;
+	img1.data = calloc( MAX_CAM_WIDTH_PADDED * MAX_CAM_HEIGHT_PADDED, sizeof( uint8_t ));
+	if( !img1.data )
 	{
 		ERROR("out of memory img1");
 		goto error;
 	}
 	
-	callback_data.image_buffer = img1;
+	callback_data.image_buffer = img1.data;
 	callback_data.max_bytes = MAX_CAM_WIDTH_PADDED * MAX_CAM_HEIGHT_PADDED;
 	callback_data.bytes_written = 0;
 	
@@ -222,6 +227,7 @@ int main(int argc, char *argv[])
     if ( mmal_port_parameter_set_boolean( still_port, MMAL_PARAMETER_CAPTURE, 1 ) != MMAL_SUCCESS)
     {
        ERROR("Failed to start capture");
+	   goto error;
     }
     else
     {
@@ -243,14 +249,16 @@ int main(int argc, char *argv[])
 	* Second Frame
 	*
 	*/
-	img2 = calloc( MAX_CAM_WIDTH_PADDED * MAX_CAM_HEIGHT_PADDED, sizeof( uint8_t ));
-	if( !img2 )
+	img2.width = MAX_CAM_WIDTH_PADDED;
+	img2.height = MAX_CAM_HEIGHT_PADDED;
+	img2.data = calloc( MAX_CAM_WIDTH_PADDED * MAX_CAM_HEIGHT_PADDED, sizeof( uint8_t ));
+	if( !img2.data )
 	{
 		ERROR("out of memory img2");
 		goto error;
 	}
 	
-	callback_data.image_buffer = img2;
+	callback_data.image_buffer = img2.data;
 	callback_data.max_bytes = MAX_CAM_WIDTH_PADDED * MAX_CAM_HEIGHT_PADDED;
 	callback_data.bytes_written = 0;
 	
@@ -277,10 +285,29 @@ int main(int argc, char *argv[])
 	  }
     }
 	
+	DEBUG("start fft frame 1");
+
+	if( clock_gettime(CLOCK_REALTIME,&time_before) )
+	{
+		ERROR("cannot get time %s", strerror(errno));
+	}
+	printf("%ld, %ld\n",time_before.tv_sec, time_before.tv_nsec);
+	fft_frame1 = pixDFT( &img1 );
+	if( clock_gettime(CLOCK_REALTIME,&time_after) )
+	{
+		ERROR("cannot get time %s", strerror(errno));
+	}
+	printf("%ld, %ld\n",time_after.tv_sec, time_after.tv_nsec);
+	fftwf_free( fft_frame1 );
+	
+	DEBUG( "fft frame 1 done" );
+	
+	
 	DEBUG("starting 2nd capture");
     if ( mmal_port_parameter_set_boolean( still_port, MMAL_PARAMETER_CAPTURE, 1 ) != MMAL_SUCCESS)
     {
        ERROR("Failed to start 2nd capture");
+	   goto error;
     }
     else
     {
@@ -297,12 +324,12 @@ int main(int argc, char *argv[])
 	DEBUG("end capture second shot");
 	
 	DEBUG("dumping frame 1");
-	y_int_save( img1, MAX_CAM_WIDTH_PADDED, MAX_CAM_HEIGHT_PADDED, "frame1.jpg" );
+	y_int_save( img1.data, MAX_CAM_WIDTH_PADDED, MAX_CAM_HEIGHT_PADDED, "frame1.jpg" );
 	DEBUG("dumping frame 2");
-	y_int_save( img2, MAX_CAM_WIDTH_PADDED, MAX_CAM_HEIGHT_PADDED, "frame2.jpg" );
+	y_int_save( img2.data, MAX_CAM_WIDTH_PADDED, MAX_CAM_HEIGHT_PADDED, "frame2.jpg" );
 
-	free( img1 );
-	free( img2 );
+	free( img1.data );
+	free( img2.data );
 
     /*
 	* End second frame

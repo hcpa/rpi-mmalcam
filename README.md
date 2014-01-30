@@ -8,13 +8,14 @@ Done
 - remove encoder
 - write to memory buffer
 - debug-write Y-data to jpeg w/ gd
+- fft Y-data first frame
+- rough timing fft
+- capture second frame
 
 Todo
-- fft Y-data first frame
-- timing fft
-- capture second frame
-- fft second frame
+- better timing fft
 - calculate phase shift
+//- fft second frame
 - timing for all
 - add/average multiple images
 - low light performance - check/set exposure/wb

@@ -9,6 +9,187 @@
 #include "log.h"
 
 
+fpix_y_t *fpixCreate( uint32_t w, uint32_t h )
+{
+	fpix_y_t *fpix;
+	
+	fpix = calloc(sizeof(fpix_y_t), 1 );
+	if( fpix == NULL )
+	{
+		ERROR("out of memory");
+		return NULL;
+	}
+	
+	fpix->width = w;
+	fpix->height = h;
+	fpix->data = calloc(sizeof(float), w*h );
+	if( !fpix->data )
+	{
+		free(fpix);
+		ERROR("out of memory");
+		return NULL;
+	}
+	return fpix;
+}
+
+void fpixDestroy( fpix_y_t *fpix )
+{
+	if( !fpix )
+		return;
+	
+	if( fpix->data )
+		free( fpix->data );
+	
+	free( fpix );
+}
+
+pix_y_t *pixCreate( uint32_t w, uint32_t h )
+{
+	pix_y_t *pix;
+	
+	pix = calloc(sizeof(pix_y_t), 1 );
+	if( pix == NULL )
+	{
+		ERROR("out of memory");
+		return NULL;
+	}
+	
+	pix->width = w;
+	pix->height = h;
+	pix->data = calloc(sizeof(uint8_t), w*h );
+	if( !pix->data )
+	{
+		free(pix);
+		ERROR("out of memory");
+		return NULL;
+	}
+	return pix;
+}
+
+void pixDestroy( pix_y_t *pix )
+{
+	if( !pix )
+		return;
+	
+	if( pix->data )
+		free( pix->data );
+	
+	free( pix );
+}
+
+
+/*--------------------------------------------------------------------*
+ *                     FPix  <-->  Pix conversions                    *
+ *--------------------------------------------------------------------*/
+/*!
+ *  pixConvertToFPix()
+ *
+ *      Input:  pix 8 bit per pixel, luminance only
+ *      Return: fpix, or null on error
+ *
+ */
+fpix_y_t *pixConvertToFPix(pix_y_t  *pixs )
+{
+	int32_t     w, h;
+	int32_t     i, j;
+	uint8_t     *data;
+	float       *fdata;
+	fpix_y_t       *fpixd;
+	
+	
+    if (!pixs)
+	{
+		ERROR("pixs not defined");
+		return ( NULL);
+	}
+
+	w = pixs->width;
+	h = pixs->height;
+
+    if ((fpixd = fpixCreate(w, h)) == NULL)
+	{
+		ERROR("out of memory");
+		return( NULL);
+	}
+    data = pixs->data;
+    fdata = fpixd->data;
+    for (i = 0; i < h; i++)
+	{
+		for (j = 0; j < w; j++)
+		{
+			*fdata = *data;
+			fdata++;
+			data++;
+        }
+    }
+	
+    return fpixd;
+}
+
+/*!
+ *  fpixConvertToPix()
+ *
+ *      Input:  fpixs luminance only
+ *              errorflag (1 to output error stats; 0 otherwise)
+ *      Return: pixd, or null on error
+ *
+ *  Notes:
+ *      (2) Because we are converting a float to an unsigned int
+ *          with a specified dynamic range (8, 16 or 32 bits), errors
+ *          can occur.  If errorflag == TRUE, output the number
+ *          of values out of range, both negative and positive.
+ *      (3) If a pixel value is positive and out of range, clip to
+ *          the maximum value represented at the outdepth of 8, 16
+ *          or 32 bits.
+ */
+pix_y_t *fpixConvertToPix( fpix_y_t    *fpixs )
+{
+	int32_t     w, h, maxval = 255;
+	int32_t     i, j;
+	uint32_t    vald;
+	float       val;
+	float      *datas;
+	uint8_t    *datad;
+	pix_y_t    *pixd;
+	
+    if (!fpixs)
+	{
+		ERROR("dpixs not defined");
+		return (NULL);
+	}
+	
+	w = fpixs->width;
+	h = fpixs->height;
+    datas = fpixs->data;
+	
+	
+	/* Make the pix and convert the data */
+    if ( (pixd = pixCreate(w, h)) == NULL )
+	{
+        ERROR("pixd not made");
+		return (NULL);
+	}
+    datad = pixd->data;
+    for (i = 0; i < h; i++) {
+        for (j = 0; j < w; j++) {
+			val = *datas;
+            if( val > 0.0 )
+				vald = (uint32_t)(val + 0.5);
+            else /* val <= 0.0 */
+                vald = 0;
+            if (vald > maxval)
+                vald = maxval;
+			*datad = (uint8_t)val;
+			datas++;
+			datad++;
+        }
+    }
+	
+    return pixd;
+}
+
+
+
 /*!
  *  fpixGetMax()
  *
@@ -19,7 +200,7 @@
  *      Return: 0 if OK; 1 on error
  */
 int32_t
-fpixGetMax(hc_fpix_t	*dpix,
+fpixGetMax(fpix_y_t	*dpix,
            float		*pmaxval,
            int32_t    	*pxmaxloc,
            int32_t    	*pymaxloc)
@@ -94,7 +275,7 @@ fpixGetMax(hc_fpix_t	*dpix,
  *           (c) dpixNormalize(dpixd, dpixs);
  */
 int32_t
-fpixNormalize(hc_fpix_t *dpixs)
+fpixNormalize(fpix_y_t *dpixs)
 {
 	int32_t     i, j;
 	float  *data, n;
@@ -128,12 +309,12 @@ fpixNormalize(hc_fpix_t *dpixs)
  *              w, h (image size)
  *      Return: dpix (unnormalized), or null on error
  */
-hc_fpix_t *
+fpix_y_t *
 fpixInverseDFT(fftwf_complex *dft,
 			   int32_t       w,
 			   int32_t       h)
 {
-	hc_fpix_t	*dpix;
+	fpix_y_t	*dpix;
 	fftwf_plan	plan;
 	
     if (!dft)
@@ -142,7 +323,7 @@ fpixInverseDFT(fftwf_complex *dft,
 		return NULL;
 	}
 	
-	if( NULL == (dpix=calloc(sizeof(hc_fpix_t),1)) )
+	if( NULL == (dpix=calloc(sizeof(fpix_y_t),1)) )
 	{
 		ERROR("out of memory");
 		return NULL;
@@ -191,27 +372,57 @@ fpixInverseDFT(fftwf_complex *dft,
 
 // TODO L_WITH_SHIFTING
 
-fftwf_complex *
-fpixDFT(hc_fpix_t      *dpix)
+fftwf_complex *fpixDFT( fpix_y_t *fpix )
 {
 	fftwf_complex  *output;
 	fftwf_plan      plan;
 	
-    if (!dpix)
+    if (!fpix)
 	{
-        ERROR("dpix not defined");
+        ERROR("fpix not defined");
 		return NULL;
 	}
 
 /* Compute the DFT of the DPix */
-	output = (fftwf_complex *) fftwf_malloc(sizeof(fftwf_complex) * dpix->height * (dpix->width / 2 + 1));
-	plan = fftwf_plan_dft_r2c_2d(dpix->height, dpix->width, dpix->data, output, FFTW_ESTIMATE);
+	output = (fftwf_complex *) fftwf_malloc(sizeof(fftwf_complex) * fpix->height * (fpix->width / 2 + 1));
+	plan = fftwf_plan_dft_r2c_2d(fpix->height, fpix->width, fpix->data, output, FFTW_ESTIMATE);
 	fftwf_execute(plan);
 	
 	fftwf_destroy_plan(plan);
 	
 	return output;
 }
+
+fftwf_complex *pixDFT(pix_y_t *pixs)
+{
+	fpix_y_t       *fpix;
+	fftwf_complex   *output;
+	fftwf_plan      plan;
+	
+    if (!pixs)
+	{
+		ERROR("pixs not defined");
+		return( NULL );
+	}
+
+	/* Convert Pix to a DPix that can be fed to the FFTW library */
+	if ((fpix = pixConvertToFPix( pixs )) == NULL)
+	{
+		ERROR("fpix not made");
+		return( NULL );
+	}
+
+	/* Compute the DFT of the DPix */
+	output = (fftwf_complex *) fftwf_malloc(sizeof(fftwf_complex) * pixs->height * (pixs->width / 2 + 1));
+	plan = fftwf_plan_dft_r2c_2d(fpix->height, fpix->width, fpix->data, output, FFTW_ESTIMATE);
+	fftwf_execute(plan);
+	
+	fpixDestroy( fpix );
+	fftwf_destroy_plan(plan);
+	
+	return output;
+}
+
 
 
 
@@ -244,8 +455,8 @@ fpixDFT(hc_fpix_t      *dpix)
  *      (4) If colormapped, remove to grayscale.
  */
 int32_t
-pixPhaseCorrelation(hc_fpix_t       *pixr,
-					hc_fpix_t       *pixs,
+pixPhaseCorrelation(fpix_y_t       *pixr,
+					fpix_y_t       *pixs,
 					float 			*ppeak,
 					int32_t   		*pxloc,
 					int32_t   		*pyloc)
@@ -254,7 +465,7 @@ pixPhaseCorrelation(hc_fpix_t       *pixr,
 	float      	cr, ci, r;
 	fftwf_complex  	*outputr, *outputs, *outputd;
 	// PIX           	*pixt1, *pixt2;
-	hc_fpix_t     	*dpix;
+	fpix_y_t     	*dpix;
 	
     if (!pixr && !pixs)
 	{
