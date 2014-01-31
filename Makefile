@@ -26,8 +26,8 @@ install: all
 mmaltest: mmaltest.o $(OBJS)
 	$(CC) -o mmaltest mmaltest.o $(OBJS) $(LDFLAGS)
 
-mmalyuv: mmalyuv.o $(OBJS) mmalyuv.h
-	$(CC) -o mmalyuv mmalyuv.o $(OBJS) $(LDFLAGS)
+mmalyuv: mmalyuv.o $(OBJS) mmalyuv.h gpu_fft/libgpu_fft.a
+	$(CC) -o mmalyuv mmalyuv.o $(OBJS) gpu_fft/libgpu_fft.a $(LDFLAGS)
 
 .c.o:
 	${CC} ${CFLAGS} -c $< -o $@
