@@ -9,7 +9,7 @@ H = hex/shader_256.hex \
     hex/shader_64k.hex \
     hex/shader_128k.hex
 
-C = hello_fft.c mailbox.c gpu_fft.c gpu_fft_twiddles.c gpu_fft_shaders.c
+C = mailbox.c gpu_fft.c gpu_fft_twiddles.c gpu_fft_shaders.c
 O = $(C:.c=.o)
 
 B = libgpu_fft.a

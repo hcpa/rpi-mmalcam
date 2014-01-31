@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
+#include <math.h>
 #include <gd.h>
 #include <complex.h>
 #include "log.h"
@@ -106,13 +107,13 @@ uint32_t y_float_save( float *data, uint32_t w, uint32_t h, char *name )
 	return(0);
 }
 
-uint32_t y_compley_save( fftwf_complex *data, uint32_t real, uint32_t w, uint32_t h, char *name)
+uint32_t y_complex_save( fftwf_complex *data, uint32_t magnitude, uint32_t w, uint32_t h, char *name )
 {
 	FILE *f;
 	gdImage *image;
 	uint32_t i, j, g, color;
 	fftwf_complex *dat;
-	float d, max;
+	float d, max, re, im;
 	
 	if(!name)
 		return(-1);
@@ -127,6 +128,8 @@ uint32_t y_compley_save( fftwf_complex *data, uint32_t real, uint32_t w, uint32_
 	}
 	
 	image = gdImageCreateTrueColor(w,h);
+
+
 	if(!image)
 	{
 		ERROR("Cannot create image");
@@ -139,25 +142,38 @@ uint32_t y_compley_save( fftwf_complex *data, uint32_t real, uint32_t w, uint32_
 	for(j=0;j<h;j++)
 		for(i=0;i<w;i++)
 		{
-			if(real)
-				d = creal(*dat);
-			else
-				d = cimag(*dat);
+			if(magnitude)
+			{
+				re = creal(*dat);
+				im = cimag(*dat);
+				d = sqrt(re*re+im*im);
+			} else {
+				re = creal(*dat);
+				im = cimag(*dat);
+				d = atan2(im, re);
+			}
 			dat++;
 			if(d>max) max=d;
 		}		
 	
-	
+
+
 	dat = data;
 	for(j=0; j<h; j++){
 		for(i=0; i<w; i++)
 		{
-			if(real)
-				d = creal(*dat);
-			else
-				d = cimag(*dat);
+			if(magnitude)
+			{
+				re = creal(*dat);
+				im = cimag(*dat);
+				d = sqrt(re*re+im*im);
+			} else {
+				re = creal(*dat);
+				im = cimag(*dat);
+				d = atan2(im, re);
+			}
 			dat++;
-			g = 0xff * d/max;
+			g = round(255.0 * d/max);
 			color = g + (g<<8) + (g<<16);
 			color &= 0xffffff; 
 			gdImageSetPixel(image,i,j,color);
@@ -167,6 +183,7 @@ uint32_t y_compley_save( fftwf_complex *data, uint32_t real, uint32_t w, uint32_
 	gdImageJpeg(image, f, 255);
 
 	gdImageDestroy(image);
+
 	return(0);
 }
 

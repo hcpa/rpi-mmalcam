@@ -24,6 +24,8 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
+#ifndef GPU_FFT_H
+#define GPU_FFT_H
 
 #define GPU_FFT_QPUS 8
 
@@ -60,3 +62,5 @@ int           gpu_fft_twiddle_size(int, int *, int *, int *);
 void          gpu_fft_twiddle_data(int, int, float *);
 unsigned int  gpu_fft_shader_size(int);
 unsigned int *gpu_fft_shader_code(int);
+
+#endif // GPU_FFT_H

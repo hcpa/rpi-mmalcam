@@ -11,6 +11,7 @@
 #include "log.h"
 #include "dbg_image.h"
 #include "fft.h"
+#include "fft_gpu.h"
 
 
 static void y_writer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
@@ -84,6 +85,7 @@ int main(int argc, char *argv[])
 	pix_y_t img1, img2;
 	fpix_y_t *fimg1, *fimg2;
 	fftwf_complex *fft_frame1, *fft_frame2;
+	struct GPU_FFT *frame1_fft_gpu;
 	int num, q;
 	float peak;
 	int32_t xloc, yloc;
@@ -297,9 +299,31 @@ int main(int argc, char *argv[])
 	clock_gettime(CLOCK_MONOTONIC,&time_after);
 	MSG("%ld milliseconds",(time_after.tv_sec-time_before.tv_sec)*1000l + (time_after.tv_nsec-time_before.tv_nsec)/1000000);
 
+	y_complex_save( fft_frame1, 1, MAX_CAM_WIDTH_PADDED/2 + 1, MAX_CAM_HEIGHT_PADDED, "fftw_re.jpg");
+	y_complex_save( fft_frame1, 0, MAX_CAM_WIDTH_PADDED/2 + 1, MAX_CAM_HEIGHT_PADDED, "fftw_im.jpg");
+
 	fftwf_free( fft_frame1 );
 	
 	DEBUG( "fft frame 1 done" );
+
+
+	// GPU FFT
+	MSG("start fft gpu frame 1");
+
+	clock_gettime(CLOCK_MONOTONIC,&time_before);
+	
+	frame1_fft_gpu = pixDFT_GPU( &img1 );
+	
+	clock_gettime(CLOCK_MONOTONIC,&time_after);
+	MSG("%ld milliseconds",(time_after.tv_sec-time_before.tv_sec)*1000l + (time_after.tv_nsec-time_before.tv_nsec)/1000000);
+
+	y_complex_save( frame1_fft_gpu->out, 1, MAX_CAM_WIDTH_PADDED, MAX_CAM_HEIGHT_PADDED, "fftw_gpu_re.jpg");
+	y_complex_save( frame1_fft_gpu->out, 0, MAX_CAM_WIDTH_PADDED, MAX_CAM_HEIGHT_PADDED, "fftw_gpu_im.jpg");
+
+
+	free_fft_gpu( frame1_fft_gpu );
+	
+	DEBUG( "fft gpu frame 1 done" );
 	
 	
 	DEBUG("starting 2nd capture");

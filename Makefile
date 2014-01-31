@@ -13,9 +13,9 @@ CC      = gcc
 CFLAGS  = -g -Wall -DPROGRAM_VERSION=\"1.0\" -DPROGRAM_NAME=\"mmalyuv\" -I../userland -I../userland/host_applications/linux/libs/bcm_host/include/ -I/opt/vc/include/interface/vcos/pthreads/ -I/opt/vc/include/interface/vmcs_host/linux/
 
 #LDFLAGS = -L/opt/vc/lib -lmmal -lmmal_core -lmmal_util -lbcm_host -lvcos -lgd -lfftw3f
-LDFLAGS = -L/home/pi/src/userland/build/lib -lmmal -lmmal_core -lmmal_util -lbcm_host -lvcos -lgd -lfftw3f
+LDFLAGS = -L/home/pi/src/userland/build/lib -L./gpu_fft -lmmal -lmmal_core -lmmal_util -lbcm_host -lvcos -lgd -lfftw3f -lgpu_fft
 
-OBJS  = log.o dbg_image.o fft.o
+OBJS  = log.o dbg_image.o fft.o fft_gpu.o
 
 all: mmaltest mmalyuv
 

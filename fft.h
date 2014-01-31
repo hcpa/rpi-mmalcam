@@ -5,17 +5,7 @@
 #include <fftw3.h>
 #endif // FFTW3_H
 
-typedef struct {
-	uint32_t width;
-	uint32_t height;
-	float *data;
-} fpix_y_t;
-
-typedef struct {
-	uint32_t width;
-	uint32_t height;
-	uint8_t *data;
-} pix_y_t;
+#include "mmalyuv.h"
 
 int32_t
 pixPhaseCorrelation(fpix_y_t       *pixr,
