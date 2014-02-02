@@ -71,30 +71,28 @@ struct GPU_FFT *pixDFT_GPU( pix_y_t *pic )
 	MSG("fft horiz %ld millis",aft-bef);
 	bef=aft;
 
-
 	log2_N = (int)round(log2(pic->height));
 	// TODO: check if width is a power of 2
 
-    ret = gpu_fft_prepare(mb, log2_N, GPU_FFT_FWD, pic->width, &fft2); // call once
+	ret = gpu_fft_prepare(mb, log2_N, GPU_FFT_FWD, pic->width, &fft2); // call once
 
-    switch(ret) {
-        case -1: ERROR("Unable to enable V3D. Please check your firmware is up to date."); return NULL;
-        case -2: ERROR("log2_N=%d not supported.  Try between 8 and 17.", log2_N);         return NULL;
-        case -3: ERROR("Out of memory round 2.  Try a smaller batch or increase GPU memory.\n");  return NULL;
-    }
+	switch(ret) {
+		case -1: ERROR("Unable to enable V3D. Please check your firmware is up to date."); return NULL;
+		case -2: ERROR("log2_N=%d not supported.  Try between 8 and 17.", log2_N);         return NULL;
+		case -3: ERROR("Out of memory round 2.  Try a smaller batch or increase GPU memory.\n");  return NULL;
+	}
 
 	trans = fft2->in;
 	for( j=0; j < pic->height; j++ )
 	{
 		base = fft1->out + j* fft1->step; // output buffer 1st fft becomes input buffer 2nd
 		
-        for( i=0; i<pic->width ; i++)
+		for( i=0; i<pic->width ; i++)
 		{
 			trans = fft2->in + i*fft2->step;
-			trans[j].re = base[i].re;
-			trans[j].im = base[i].im;
+			trans[j] = base[i];
 		}
-    }
+	}
 	aft = millis();
 	MSG("transpose %ld millis",aft-bef);
 	bef = aft;
@@ -110,7 +108,7 @@ struct GPU_FFT *pixDFT_GPU( pix_y_t *pic )
 	// TODO KACKE, ich muss den Scheiß ja noch zurücktransponieren. Wird es wohl echt langsamer werden...
 	// Oder ich überlege, ob ich das wirklich muss 
 
-    return fft2;
+	return fft2;
 
 }
 

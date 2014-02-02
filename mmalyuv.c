@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <time.h>
+#include <math.h>
 #include <interface/mmal/mmal.h>
 #include <interface/mmal/mmal_encodings.h>
 #include <interface/mmal/util/mmal_default_components.h>
@@ -248,6 +249,24 @@ int main(int argc, char *argv[])
 	
 	DEBUG("end capture first shot");
 	
+	// TODO DEBUG - FFT mit Beugungsmuster überprüfen
+	// img1 wird mit senkrechtem Strich überschrieben
+	{
+		int i, j;
+		uint8_t *dat;
+		
+		dat = img1.data;
+		for( j = 0; j < img1.height; j++ )
+			for( i = 0; i < img1.width; i++, dat++)
+				// if( j > 400 && j < 623 && i > 500 && i < 524 )
+				if( sqrt(pow(j-512,2)+pow(i-512,2))<10 )
+					*dat = 0xff;
+				else
+					*dat = 0;
+	}
+
+	
+	
     vcos_sleep(1000);
 	
 	/*
@@ -305,8 +324,7 @@ int main(int argc, char *argv[])
 	fftwf_free( fft_frame1 );
 	
 	DEBUG( "fft frame 1 done" );
-
-
+	
 	// GPU FFT
 	MSG("start fft gpu frame 1");
 
@@ -345,6 +363,23 @@ int main(int argc, char *argv[])
 	DEBUG("Callback_data max_bytes %d bytes_written %d", callback_data.max_bytes, callback_data.bytes_written );	
 	
 	DEBUG("end capture second shot");
+	
+	// TODO DEBUG - FFT mit Beugungsmuster überprüfen
+	// img2 wird mit senkrechtem Strich leicht nach rechts unten verschoben überschrieben
+	{
+		int i, j;
+		uint8_t *dat;
+		
+		dat = img2.data;
+		for( j = 0; j < img2.height; j++ )
+			for( i = 0; i < img2.width; i++, dat++)
+				// if( j > 400 && j < 623 && i > 512 && i < 536 )
+				if( sqrt(pow(j-517,2)+pow(i-522,2))<10 )
+					*dat = 0xff;
+				else
+					*dat = 0;
+	}
+	
 	
 	DEBUG("convert boths images to fpix");
 	fimg1 = pixConvertToFPix( &img1 );

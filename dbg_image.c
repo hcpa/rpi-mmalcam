@@ -146,7 +146,7 @@ uint32_t y_complex_save( fftwf_complex *data, uint32_t magnitude, uint32_t w, ui
 			{
 				re = creal(*dat);
 				im = cimag(*dat);
-				d = sqrt(re*re+im*im);
+				d = sqrt(pow(re,2)+pow(im,2));
 			} else {
 				re = creal(*dat);
 				im = cimag(*dat);
