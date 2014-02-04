@@ -258,7 +258,7 @@ int main(int argc, char *argv[])
 	
 	// TODO DEBUG - FFT mit Beugungsmuster überprüfen
 	// img1 wird mit weißem Kreis Radius 10 überschrieben
-/*	{
+	{
 		int i, j;
 		uint8_t *dat;
 		
@@ -269,7 +269,7 @@ int main(int argc, char *argv[])
 					*dat = 0xff;
 				else
 					*dat = 0;
-	}*/
+	}
 
 	
 	
@@ -340,7 +340,7 @@ int main(int argc, char *argv[])
 	time_after = millis();
 	MSG("%ld milliseconds",time_after-time_before);
 
-	gpufft_result_save( frame1_fft_gpu->in, frame1_fft_gpu->step, 1, 1, 1, MAX_CAM_WIDTH_PADDED, MAX_CAM_HEIGHT_PADDED, "gpu_fft");
+	gpufft_result_save( frame1_fft_gpu->in, frame1_fft_gpu->step, 1, 1, 1, MAX_CAM_WIDTH_PADDED/2, MAX_CAM_HEIGHT_PADDED, "gpu_fft");
 
 	free_fft_gpu( frame1_fft_gpu );
 	
@@ -369,7 +369,7 @@ int main(int argc, char *argv[])
 	
 	// TODO DEBUG - FFT mit Beugungsmuster überprüfen
 	// img2 wird mit senkrechtem Strich leicht nach rechts unten verschoben überschrieben
-/*	{
+	{
 		int i, j;
 		uint8_t *dat;
 		
@@ -380,7 +380,7 @@ int main(int argc, char *argv[])
 					*dat = 0xff;
 				else
 					*dat = 0;
-	}*/
+	}
 
 
 	DEBUG("GPU phase correlation");
