@@ -10,6 +10,21 @@ OPEN QUESTION: WHAT DOES THIS MEAN?
   out-of-place.  The input data is never preserved.
 
 
+Puh, this was a tough one - and still is.
+
+I think I have to do an excursion into FFT-land.
+Things to do:
+- Make sure, I understand the FFT results
+	- Explore L_WITH_SHIFTING from ipl example
+       --> alternates pos/neg Values by multiplication with pow(-1,i+j)
+       --> passed through all funktions, evaluated only in conversion between |N and |R
+       --> set to L_WITH_SHIFTING *only* in pixApplyFilterGray
+	- find samples of code which dumps FFT-results to file
+       --> 
+- Make sure, FFTW and GPU_FFT deliver the same results
+	- run a complex-to-complex 2D-FFT with FFTW
+- Why do the results from GPU_FFT look like every other line is missing?
+
 Done
 - clone from mmaltest
 - remove encoder

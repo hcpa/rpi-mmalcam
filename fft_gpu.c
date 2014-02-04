@@ -8,6 +8,7 @@
 #include "mmalyuv.h"
 #include "log.h"
 #include "fft_gpu.h"
+#include "dbg_image.h"
 
 #include "gpu_fft/mailbox.h"
 #include "gpu_fft/gpu_fft.h"
@@ -55,20 +56,23 @@ struct GPU_FFT *pixDFT_GPU( pix_y_t *pic )
 	{
 		base = fft1->in + j*fft1->step; // input buffer
 		picdata = pic->data + j*pic->width;
-        for( i=0; i<pic->width ; i++)
+        for( i=0; i<pic->width ; i++,picdata++ )
 		{
-			base[i].re = *(picdata++);
-			base[i].im = 0;
+			base[i].re = *(picdata);
+			base[i].im = 0;			
 		}
     }
 	aft = millis();
 	MSG("int->complex %ld millis",aft-bef);
 
 	usleep(1); // Yield to OS
-	bef = aft;
+	bef = millis();
+
 	gpu_fft_execute(fft1); // call one or many times
+
 	aft = millis();
 	MSG("fft horiz %ld millis",aft-bef);
+
 	bef=aft;
 
 	log2_N = (int)round(log2(pic->height));

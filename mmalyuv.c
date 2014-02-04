@@ -250,7 +250,7 @@ int main(int argc, char *argv[])
 	DEBUG("end capture first shot");
 	
 	// TODO DEBUG - FFT mit Beugungsmuster überprüfen
-	// img1 wird mit senkrechtem Strich überschrieben
+	// img1 wird mit weißem Kreis Radius 10 überschrieben
 	{
 		int i, j;
 		uint8_t *dat;
@@ -318,8 +318,7 @@ int main(int argc, char *argv[])
 	clock_gettime(CLOCK_MONOTONIC,&time_after);
 	MSG("%ld milliseconds",(time_after.tv_sec-time_before.tv_sec)*1000l + (time_after.tv_nsec-time_before.tv_nsec)/1000000);
 
-	y_complex_save( fft_frame1, 1, MAX_CAM_WIDTH_PADDED/2 + 1, MAX_CAM_HEIGHT_PADDED, "fftw_re.jpg");
-	y_complex_save( fft_frame1, 0, MAX_CAM_WIDTH_PADDED/2 + 1, MAX_CAM_HEIGHT_PADDED, "fftw_im.jpg");
+	fftwf_result_save( fft_frame1, 1, 1, 1, MAX_CAM_WIDTH_PADDED/2 + 1, MAX_CAM_HEIGHT_PADDED, "fftw1");
 
 	fftwf_free( fft_frame1 );
 	
@@ -335,9 +334,7 @@ int main(int argc, char *argv[])
 	clock_gettime(CLOCK_MONOTONIC,&time_after);
 	MSG("%ld milliseconds",(time_after.tv_sec-time_before.tv_sec)*1000l + (time_after.tv_nsec-time_before.tv_nsec)/1000000);
 
-	y_complex_save( frame1_fft_gpu->out, 1, MAX_CAM_WIDTH_PADDED, MAX_CAM_HEIGHT_PADDED, "fftw_gpu_re.jpg");
-	y_complex_save( frame1_fft_gpu->out, 0, MAX_CAM_WIDTH_PADDED, MAX_CAM_HEIGHT_PADDED, "fftw_gpu_im.jpg");
-
+	gpufft_result_save( frame1_fft_gpu->out, frame1_fft_gpu->step, 1, 1, 1, MAX_CAM_WIDTH_PADDED, MAX_CAM_HEIGHT_PADDED, "gpu_fft");
 
 	free_fft_gpu( frame1_fft_gpu );
 	
