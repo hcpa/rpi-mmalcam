@@ -2,6 +2,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <math.h>
+#include <values.h>
 
 #include <time.h>
 
@@ -22,28 +23,37 @@ static long millis()
 	return tt.tv_sec*1000l + tt.tv_nsec/1000000;
 }
 
-struct GPU_FFT *pixDFT_GPU( pix_y_t *pic )
+static void in_place_transpose_square( struct GPU_FFT_COMPLEX *data, int w, int step )
+{
+	struct GPU_FFT_COMPLEX temp;
+	struct GPU_FFT_COMPLEX *base, *trans;
+	int i, j;
+	
+	for( j = 0; j <= w-2; j++ )
+		for( i = j+1; i <= w-1; i++ )
+		{
+			base = data + j*step + i;
+			trans = data + i*step + j;
+			temp = *base;
+			*base = *trans;
+			*trans = temp;
+		}
+	
+}
+
+
+
+static struct GPU_FFT *pixDFT_GPU_no_final_transpose( pix_y_t *pic )
 {
     int i, j, ret, log2_N;
-    struct GPU_FFT_COMPLEX *base, *trans;
-    struct GPU_FFT *fft1, *fft2;
+    struct GPU_FFT_COMPLEX *base;
+    struct GPU_FFT *fft;
 	uint8_t *picdata;
 	long bef,aft;
 	
-	if( mb < 0 )
-	{
-		mb = mbox_open();
-		if( mb < 0 ){
-			ERROR( "cannot open mailbox" );
-			return (NULL);
-		}
-	}
-
-
 	log2_N = (int)round(log2(pic->width));
-	// TODO: check if width is a power of 2
 
-    ret = gpu_fft_prepare(mb, log2_N, GPU_FFT_FWD, pic->height, &fft1); // call once
+    ret = gpu_fft_prepare(mb, log2_N, GPU_FFT_FWD, pic->height, &fft); // call once
 
     switch(ret) {
         case -1: ERROR("Unable to enable V3D. Please check your firmware is up to date."); return NULL;
@@ -54,7 +64,7 @@ struct GPU_FFT *pixDFT_GPU( pix_y_t *pic )
 	bef = millis();
 	for( j=0; j < pic->height; j++ )
 	{
-		base = fft1->in + j*fft1->step; // input buffer
+		base = fft->in + j*fft->step; // input buffer
 		picdata = pic->data + j*pic->width;
         for( i=0; i<pic->width ; i++,picdata++ )
 		{
@@ -68,53 +78,75 @@ struct GPU_FFT *pixDFT_GPU( pix_y_t *pic )
 	usleep(1); // Yield to OS
 	bef = millis();
 
-	gpu_fft_execute(fft1); // call one or many times
+	gpu_fft_execute(fft); // call one or many times
 
 	aft = millis();
 	MSG("fft horiz %ld millis",aft-bef);
 
-	bef=aft;
+	bef=millis();
 
-	log2_N = (int)round(log2(pic->height));
-	// TODO: check if width is a power of 2
-
-	ret = gpu_fft_prepare(mb, log2_N, GPU_FFT_FWD, pic->width, &fft2); // call once
-
-	switch(ret) {
-		case -1: ERROR("Unable to enable V3D. Please check your firmware is up to date."); return NULL;
-		case -2: ERROR("log2_N=%d not supported.  Try between 8 and 17.", log2_N);         return NULL;
-		case -3: ERROR("Out of memory round 2.  Try a smaller batch or increase GPU memory.\n");  return NULL;
-	}
-
-	trans = fft2->in;
-	for( j=0; j < pic->height; j++ )
-	{
-		base = fft1->out + j* fft1->step; // output buffer 1st fft becomes input buffer 2nd
-		
-		for( i=0; i<pic->width ; i++)
-		{
-			trans = fft2->in + i*fft2->step;
-			trans[j] = base[i];
-		}
-	}
+	// In-place transposition of the result
+	in_place_transpose_square( fft->out, pic->height, fft->step );	
+	
 	aft = millis();
 	MSG("transpose %ld millis",aft-bef);
 	bef = aft;
 
-	gpu_fft_release( fft1 );
-
 	usleep(1); // Yield to OS
-	gpu_fft_execute(fft2); // call one or many times
+	// this execution will work from out back to in
+	gpu_fft_execute(fft); // call one or many times
 	aft = millis();
 	MSG("fft vert %ld millis",aft-bef);
 	
 
-	// TODO KACKE, ich muss den Scheiß ja noch zurücktransponieren. Wird es wohl echt langsamer werden...
-	// Oder ich überlege, ob ich das wirklich muss 
-
-	return fft2;
+	return fft;
 
 }
+
+struct GPU_FFT *pixDFT_GPU( pix_y_t *pic )
+{
+	struct GPU_FFT *fft;
+	long bef,aft;
+	
+	if( !pic )
+	{
+		ERROR("nothing to do");
+		return NULL;
+	}
+
+	if( (pic->width != pic->height) ||
+		(pic->width <= 0) ||
+		(pic->width & (pic->width-1)) != 0)
+	{
+		ERROR( "as of now, this function only works on square images with a lenght greater 0 of a power of 2. %d x %d is not correct", pic->width, pic->height );
+		return (NULL);
+	}
+	
+	if( mb < 0 )
+	{
+		mb = mbox_open();
+		if( mb < 0 ){
+			ERROR( "cannot open mailbox" );
+			return (NULL);
+		}
+	}
+	
+	fft = pixDFT_GPU_no_final_transpose( pic );
+	if( !fft )
+	{
+		ERROR("pixDFT_GPU_no_final_transpose failed");
+		return NULL;
+	}
+	
+	// Transpose back
+	bef = millis();
+	in_place_transpose_square( fft->in, pic->height, fft->step );
+	aft = millis();
+	MSG("2nd transpose %ld millis",aft-bef);
+
+	return fft;
+}
+
 
 void free_fft_gpu( struct GPU_FFT *fft )
 {
@@ -122,153 +154,171 @@ void free_fft_gpu( struct GPU_FFT *fft )
 }
 
 
-int pixPhaseCorrelate( pix_y_t *pixr, pix_y_t *pixs, float *peak, int *x, int *y )
+int pixPhaseCorrelate_GPU( pix_y_t *pixr, pix_y_t *pixs, float *ppeak, int *px, int *py )
 {
     int i, j, ret, log2_N;
-    struct GPU_FFT_COMPLEX *base, *trans;
-    struct GPU_FFT *fftr1, *fftr2;
-    struct GPU_FFT *ffts1, *ffts2;
-    struct GPU_FFT *ffto1, *ffto2;	
-	uint8_t *picdata;
+    struct GPU_FFT_COMPLEX *base_r, *base_s, *base_i;
+    struct GPU_FFT *fftr, *ffts, *ffti;
+	long bef,aft;
+	float maxval;
+	int xmaxloc, ymaxloc;
 
+
+	if( (pixr->width != pixr->height) ||
+		(pixr->width != pixs->width)  ||
+		(pixr->height!= pixs->height) ||
+		(pixr->width <= 0) ||
+		(pixr->width & (pixr->width-1)) != 0)
+	{
+		ERROR( "as of now, this function only works on square images with a lenght greater 0 of a power of 2.\n%d x %d (pixr) and %d x %d (pixs) is not correct", 
+			   pixr->width, pixr->height, pixr->width, pixr->height );
+		return (-1);
+	}
+	
+	if( !ppeak || !px || !py )
+	{
+		ERROR("missing parameter: ppeak:%ld px:%ld py:%ld", ppeak, px, py );
+		return (-1);
+	}
+	
 	if( mb < 0 )
 	{
 		mb = mbox_open();
 		if( mb < 0 ){
 			ERROR( "cannot open mailbox" );
-			return -1;
+			return (-1);
 		}
 	}
 
-	log2_N = (int)round(log2(pixr->width));
-
 
 	// FFT pixr
-	// 	r = pixDFT_GPU( pixr ) --> do not transpose back!
-
-    ret = gpu_fft_prepare(mb, log2_N, GPU_FFT_FWD, pixr->height, &fftr1); // call once
-
-    switch(ret) {
-        case -1: ERROR("Unable to enable V3D. Please check your firmware is up to date."); return -1;
-        case -2: ERROR("log2_N=%d not supported.  Try between 8 and 17.", log2_N);         return -1;
-        case -3: ERROR("Out of memory round1.  Try a smaller batch or increase GPU memory.\n");  return -1;
-    }
-
-	for( j=0; j < pixr->height; j++ )
+	fftr = pixDFT_GPU_no_final_transpose( pixr );
+	if( !fftr )
 	{
-		base = fftr1->in + j*fftr1->step; // input buffer
-		picdata = pixr->data + j*pixr->width;
-        for( i=0; i<pixr->width ; i++)
-		{
-			base[i].re = *(picdata++);
-			base[i].im = 0;
-		}
-    }
+		ERROR("pixDFT_GPU_no_final_transpose failed");
+		return (-1);
+	}
+	// RESULT IS NOW TRANSPOSED IN fftr->in 
 
-	usleep(1); // Yield to OS
-	gpu_fft_execute(fftr1); // call one or many times
-
-
-	log2_N = (int)round(log2(pixr->height));
-	// TODO: check if width is a power of 2
-
-    ret = gpu_fft_prepare(mb, log2_N, GPU_FFT_FWD, pixr->width, &fftr2); // call once
-
-    switch(ret) {
-        case -1: ERROR("Unable to enable V3D. Please check your firmware is up to date."); return -1;
-        case -2: ERROR("log2_N=%d not supported.  Try between 8 and 17.", log2_N);         return -1;
-        case -3: ERROR("Out of memory round 2.  Try a smaller batch or increase GPU memory.\n");  return -1;
-    }
-
-	trans = fftr2->in;
-	for( j=0; j < pixr->height; j++ )
-	{
-		base = fftr1->out + j* fftr1->step; // output buffer 1st fft becomes input buffer 2nd
-		
-        for( i=0; i<pixr->width ; i++)
-		{
-			trans = fftr2->in + i*fftr2->step;
-			trans[j].re = base[i].re;
-			trans[j].im = base[i].im;
-		}
-    }
-	gpu_fft_release( fftr1 );
-
-	usleep(1); // Yield to OS
-	gpu_fft_execute(fftr2); // call one or many times
-
-
+	
 	// FFT pixs
-	// s = pixDFT_GPU( pixs ) --> do not transpose back!
-    ret = gpu_fft_prepare(mb, log2_N, GPU_FFT_FWD, pixs->height, &ffts1); // call once
-
-    switch(ret) {
-        case -1: ERROR("Unable to enable V3D. Please check your firmware is up to date."); return -1;
-        case -2: ERROR("log2_N=%d not supported.  Try between 8 and 17.", log2_N);         return -1;
-        case -3: ERROR("Out of memory round1.  Try a smaller batch or increase GPU memory.\n");  return -1;
-    }
-
-	for( j=0; j < pixs->height; j++ )
+	ffts = pixDFT_GPU_no_final_transpose( pixs );
+	if( !ffts )
 	{
-		base = ffts1->in + j*ffts1->step; // input buffer
-		picdata = pixs->data + j*pixs->width;
-        for( i=0; i<pixs->width ; i++)
-		{
-			base[i].re = *(picdata++);
-			base[i].im = 0;
-		}
-    }
-
-	usleep(1); // Yield to OS
-	gpu_fft_execute(ffts1); // call one or many times
+		ERROR("pixDFT_GPU_no_final_transpose failed");
+		return (-1);
+	}
+	// RESULT IS NOW TRANSPOSED IN ffts->in 
 
 
-	log2_N = (int)round(log2(pixs->height));
-	// TODO: check if width is a power of 2
+	log2_N = (int)round(log2(pixr->width));
 
-    ret = gpu_fft_prepare(mb, log2_N, GPU_FFT_FWD, pixs->width, &ffts2); // call once
+    ret = gpu_fft_prepare(mb, log2_N, GPU_FFT_REV, pixr->height, &ffti); // call once
 
     switch(ret) {
-        case -1: ERROR("Unable to enable V3D. Please check your firmware is up to date."); return -1;
-        case -2: ERROR("log2_N=%d not supported.  Try between 8 and 17.", log2_N);         return -1;
-        case -3: ERROR("Out of memory round 2.  Try a smaller batch or increase GPU memory.\n");  return -1;
+        case -1: ERROR("Unable to enable V3D. Please check your firmware is up to date."); return (-1);
+        case -2: ERROR("log2_N=%d not supported.  Try between 8 and 17.", log2_N);         return (-1);
+        case -3: ERROR("Out of memory round1.  Try a smaller batch or increase GPU memory.\n");  return (-1);
     }
 
-	trans = ffts2->in;
-	for( j=0; j < pixs->height; j++ )
+
+	bef = millis();
+
+	// calculate in-place cross-power spectrum
+	// 	o_{i,j} = sqrt((re(s_{i,j})*re(r_{i,j}) - im(s_{i,j})*-im(r__{i,j}))^2 + (re(s_{i,j})*-im(r_{i,j}) - im(s_{i,j})*re(r__{i,j}))^2)
+	// 
+	for( j = 0; j < pixr->width; j++ )
 	{
-		base = ffts1->out + j* ffts1->step; // output buffer 1st fft becomes input buffer 2nd
-		
-        for( i=0; i<pixs->width ; i++)
+		base_r = fftr->in + j*fftr->step;
+		base_s = ffts->in + j*ffts->step;
+		base_i = ffti->in + j*ffti->step;
+		for( i = 0; i < pixr->height; i++ )
 		{
-			trans = ffts2->in + i*ffts2->step;
-			trans[j].re = base[i].re;
-			trans[j].im = base[i].im;
+			struct GPU_FFT_COMPLEX tmp;
+			float ac, bd, bc, ad, r;
+			
+			// multiply element in reference matrix and element at same position complex-conjugated shifted matrix
+			// (a+bi)(c-di) = (ac+bd) + (bc-ad)i
+			// 
+			// normalize result by division by absolute value of product of both elements (non-congugated)
+			// |(a+bi)(c+di)| = |(ac-bd) + (bc+ad)i| = sqrt( (ac-bd)^2 + (bc+ad)^2 )
+			ac = base_r[i].re * base_s[i].re;
+			bd = base_r[i].im * base_s[i].im;
+			bc = base_r[i].im * base_s[i].re;
+			ad = base_r[i].re * base_s[i].im;
+			r = sqrtf(powf(ac-bd,2) + powf(bc+ad,2)); 
+			tmp.re = (ac+bd)/r;
+			tmp.im = (bc-ad)/r;
+			base_i[i] = tmp;
+			// b*c - a*d
 		}
-    }
-	gpu_fft_release( ffts1 );
+	}
+	
+	aft = millis();
+	MSG("cross-power spectrum %ld millis",aft-bef);
+	
+	// Free fftr, ffts
+	free_fft_gpu( fftr );
+	free_fft_gpu( ffts );
+	
 
-	usleep(1); // Yield to OS
-	gpu_fft_execute(ffts2); // call one or many times
-
-	//////////////////////
-
-    ret = gpu_fft_prepare(mb, log2_N, GPU_FFT_FWD, pixr->width, &ffto1); // call once
-
-    switch(ret) {
-        case -1: ERROR("Unable to enable V3D. Please check your firmware is up to date."); return -1;
-        case -2: ERROR("log2_N=%d not supported.  Try between 8 and 17.", log2_N);         return -1;
-        case -3: ERROR("Out of memory round 2.  Try a smaller batch or increase GPU memory.\n");  return -1;
-    }
-
-
-	// calculate cross-power spectrum
-	// 	o_{i,j} = sqrt((re(s_{j,i})*re(r_{j,i}) - im(s_{j,i})*-im(r__{j,i}))^2 + (re(s_{j,i})*-im(r_{j,i}) - im(s_{j,i})*re(r__{j,i}))^2)
 	// 
 	// p = InverseDFT_GPU( o );
+	usleep(1); // Yield to OS
+	bef = millis();
+
+	gpu_fft_execute(ffti); // call one or many times
+
+	aft = millis();
+	MSG("inverse fft vert %ld millis",aft-bef);
+
+	bef=millis();
+
+	// In-place transposition of the result
+	in_place_transpose_square( ffti->out, pixr->height, ffti->step );	
+	
+	aft = millis();
+	MSG("transpose %ld millis",aft-bef);
+	bef = aft;
+
+	usleep(1); // Yield to OS
+	// this execution will work from out back to in
+	gpu_fft_execute(ffti); // call one or many times
+	aft = millis();
+	MSG("inverse fft horiz %ld millis",aft-bef);
+	// RESULT IS NOW NOT-TRANSPOSED IN ffts->in 
+	
 	// 
 	// identify peak, x, y
+	maxval = -MAXFLOAT;
+	xmaxloc = 0;
+	ymaxloc = 0;
+	for( j = 0; j < pixr->height; j++ )
+	{
+		base_i = ffti->in + j*ffti->step;
+		for( i = 0; i < pixr->width; i++ )
+		{
+			if( base_i[i].re > maxval )
+			{
+				maxval = base_i[i].re;
+				xmaxloc = i;
+				ymaxloc = j;
+			}
+		}
+	}
+
+	if (xmaxloc >= pixr->width / 2)
+		xmaxloc -= pixr->width;
+	if (ymaxloc >= pixr->height / 2)
+		ymaxloc -= pixr->height;
+
+	*ppeak = maxval;
+	*px = xmaxloc;
+	*py = ymaxloc;
+
 	// 
 	// clean up
+	free_fft_gpu( ffti );
+	
+	return (0);
 }
-		

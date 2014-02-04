@@ -1,12 +1,21 @@
 #include <stdlib.h>
 #include <sys/time.h>
 #include <stdint.h>
+#include <time.h>
 #include <math.h>
 #include <complex.h>
 #include <fftw3.h>
 #include "fft.h"
 #include "dbg_image.h"
 #include "log.h"
+
+static long millis()
+{
+	struct timespec tt;
+	clock_gettime(CLOCK_MONOTONIC,&tt);
+	return tt.tv_sec*1000l + tt.tv_nsec/1000000;
+}
+
 
 
 fpix_y_t *fpixCreate( uint32_t w, uint32_t h )
@@ -466,6 +475,7 @@ pixPhaseCorrelation(fpix_y_t       *pixr,
 	fftwf_complex  	*outputr, *outputs, *outputd;
 	// PIX           	*pixt1, *pixt2;
 	fpix_y_t     	*dpix;
+	long			before, after;
 	
     if (!pixr && !pixs)
 	{
@@ -490,16 +500,22 @@ pixPhaseCorrelation(fpix_y_t       *pixr,
     // pixt2 = pixClone(pixs);
     
 	/* Calculate the DFT of pixr and pixs */
+	before = millis();
 	if ((outputr = fpixDFT(pixr)) == NULL)
 	{
 		ERROR("outputr not made");
 		return(-1);
 	}
+	after = millis();
+	MSG( "fft pixr %ld milliseconds", after-before );
+	before = after;
 	if ((outputs = fpixDFT(pixs)) == NULL) {
 		fftwf_free(outputr);
 		ERROR("outputs not made");
 		return(-1);
 	}
+	after = millis();
+	MSG( "fft pixs %ld milliseconds", after-before );
 	outputd = (fftwf_complex *) fftwf_malloc(sizeof(fftwf_complex) * pixr->height * (pixr->width / 2 + 1));
 	if (outputd == NULL) {
 		fftwf_free(outputr);
@@ -508,6 +524,7 @@ pixPhaseCorrelation(fpix_y_t       *pixr,
 		return(-1);
 	}
 	
+	before = millis();
 	/* Calculate the cross-power spectrum */
 	for (i = 0, k = 0; i < pixr->height; i++) {
 		for (j = 0; j < pixr->width / 2 + 1; j++, k++) {
@@ -517,10 +534,15 @@ pixPhaseCorrelation(fpix_y_t       *pixr,
 			outputd[k] = (cr / r) + I * (ci / r);
 		}
 	}
+	after = millis();
+	MSG( "cross-power spectrum %ld milliseconds", after-before );
 	
 	/* Compute the inverse DFT of the cross-power spectrum
 	    and find its peak */
+	before = millis();
 	dpix = fpixInverseDFT(outputd, pixr->width, pixr->height);
+	after = millis();
+	MSG( "inverse DFT %ld milliseconds", after-before );
 	
 	// complex_save(outputs, 1, pixr->width/2+1,pixr->height,"outputr-re.jpg");
 	// complex_save(outputs, 0, pixr->width/2+1,pixr->height,"outputr-im.jpg");
@@ -531,7 +553,10 @@ pixPhaseCorrelation(fpix_y_t       *pixr,
 	
 //	y_float_save(dpix->data, dpix->width, dpix->height,"revFFTresult.jpg");
 	
+	before = millis();
 	fpixGetMax(dpix, ppeak, pxloc, pyloc);
+	after = millis();
+	MSG( "find max %ld milliseconds", after-before );
 	
 	if (*pxloc >= pixr->width / 2)
 		*pxloc -= pixr->width;

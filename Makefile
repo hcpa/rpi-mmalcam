@@ -27,7 +27,9 @@ mmaltest: mmaltest.o $(OBJS)
 	$(CC) -o mmaltest mmaltest.o $(OBJS) $(LDFLAGS)
 
 mmalyuv: mmalyuv.o $(OBJS) mmalyuv.h gpu_fft/libgpu_fft.a
-	$(CC) -o mmalyuv mmalyuv.o $(OBJS) gpu_fft/libgpu_fft.a $(LDFLAGS)
+	$(CC) -o mmalyuv mmalyuv.o $(OBJS) $(LDFLAGS)
+	sudo chown root mmalyuv
+	sudo chmod u+s mmalyuv
 
 .c.o:
 	${CC} ${CFLAGS} -c $< -o $@
