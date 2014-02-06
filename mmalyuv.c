@@ -21,6 +21,20 @@ static long millis()
 	return tt.tv_sec*1000l + tt.tv_nsec/1000000;
 }
 
+static void create_sample_image( pix_y_t *pic, int shift_x, int shift_y )
+{
+	int i, j;
+	uint8_t *dat;
+	
+	dat = pic->data;
+	for( j = 0; j < pic->height; j++ )
+		for( i = 0; i < pic->width; i++, dat++)
+			if( sqrtf(powf(j-MAX_CAM_HEIGHT_PADDED/2+shift_y,2)+powf(i-MAX_CAM_WIDTH_PADDED/2+shift_x,2))<10 )
+				*dat = 0xff;
+			else
+				*dat = 0;
+}
+
 
 static void y_writer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
 {
@@ -100,7 +114,7 @@ int main(int argc, char *argv[])
 
 	
 
-	// TODO
+	// TODO verbose level
 	log_verbose(100);
 
 	bcm_host_init();
@@ -256,21 +270,9 @@ int main(int argc, char *argv[])
 	
 	DEBUG("end capture first shot");
 	
-	// TODO DEBUG - FFT mit Beugungsmuster überprüfen
+	// DEBUG - FFT mit Beugungsmuster überprüfen
 	// img1 wird mit weißem Kreis Radius 10 überschrieben
-/*	{
-		int i, j;
-		uint8_t *dat;
-		
-		dat = img1.data;
-		for( j = 0; j < img1.height; j++ )
-			for( i = 0; i < img1.width; i++, dat++)
-				if( sqrt(pow(j-MAX_CAM_HEIGHT_PADDED/2,2)+pow(i-MAX_CAM_WIDTH_PADDED/2,2))<10 )
-					*dat = 0xff;
-				else
-					*dat = 0;
-	}*/
-
+	// create_sample_image( &img1, 0, 0 );
 	
 	
     vcos_sleep(1000);
@@ -315,14 +317,14 @@ int main(int argc, char *argv[])
 	  }
     }
 	
-	MSG("start fft frame 1");
+	DEBUG("start fft frame 1");
 
 	time_before = millis();
 	
 	fft_frame1 = pixDFT( &img1 );
 	
 	time_after = millis();
-	MSG("%ld milliseconds",time_after-time_before);
+	DEBUG("%ld milliseconds",time_after-time_before);
 
 	fftwf_result_save( fft_frame1, 1, 1, 1, MAX_CAM_WIDTH_PADDED/2 + 1, MAX_CAM_HEIGHT_PADDED, "fftw1");
 
@@ -331,16 +333,16 @@ int main(int argc, char *argv[])
 	DEBUG( "fft frame 1 done" );
 	
 	// GPU FFT
-	MSG("start fft gpu frame 1");
+	DEBUG("start fft gpu frame 1");
 
 	time_before = millis();
 	
 	frame1_fft_gpu = pixDFT_GPU( &img1 );
 	
 	time_after = millis();
-	MSG("%ld milliseconds",time_after-time_before);
+	DEBUG("%ld milliseconds",time_after-time_before);
 
-	gpufft_result_save( frame1_fft_gpu->in, frame1_fft_gpu->step, 1, 1, 1, MAX_CAM_WIDTH_PADDED, MAX_CAM_HEIGHT_PADDED, "gpu_fft");
+	gpufft_result_save( frame1_fft_gpu->in, frame1_fft_gpu->step, 1, 1, 1, MAX_CAM_WIDTH_PADDED/2, MAX_CAM_HEIGHT_PADDED, "gpu_fft");
 
 	free_fft_gpu( frame1_fft_gpu );
 	
@@ -367,21 +369,9 @@ int main(int argc, char *argv[])
 	
 	DEBUG("end capture second shot");
 	
-	// TODO DEBUG - FFT mit Beugungsmuster überprüfen
+	// DEBUG - FFT mit Beugungsmuster überprüfen
 	// img2 wird mit senkrechtem Strich leicht nach rechts unten verschoben überschrieben
-/*	{
-		int i, j;
-		uint8_t *dat;
-		
-		dat = img2.data;
-		for( j = 0; j < img2.height; j++ )
-			for( i = 0; i < img2.width; i++, dat++)
-				if( sqrt(pow(j-MAX_CAM_HEIGHT_PADDED/2+5,2)+pow(i-MAX_CAM_WIDTH_PADDED/2+10,2))<10 )
-					*dat = 0xff;
-				else
-					*dat = 0;
-	}*/
-
+	// create_sample_image( &img2, 23, 17 );
 
 	DEBUG("GPU phase correlation");
 
@@ -390,10 +380,10 @@ int main(int argc, char *argv[])
 	if( pixPhaseCorrelate_GPU( &img1, &img2, &peak, &xloc, &yloc ) )
 		ERROR("cannot phase correlate");		
 	else
-    	MSG("peak: %f, x: %d, y:%d", peak, xloc, yloc );
+    	DEBUG("peak: %f, x: %d, y:%d", peak, xloc, yloc );
 
 	time_after = millis();
-	MSG("%ld milliseconds",time_after-time_before);
+	DEBUG("%ld milliseconds",time_after-time_before);
 
 	
 	
@@ -408,10 +398,10 @@ int main(int argc, char *argv[])
 	if( pixPhaseCorrelation( fimg1, fimg2, &peak, &xloc, &yloc ) )
 		ERROR("cannot phase correlate");		
 	else
-    	MSG("peak: %f, x: %d, y:%d", peak, xloc, yloc );
+    	DEBUG("peak: %f, x: %d, y:%d", peak, xloc, yloc );
 
 	time_after = millis();
-	MSG("%ld milliseconds",time_after-time_before);
+	DEBUG("%ld milliseconds",time_after-time_before);
 
 
 	DEBUG("dumping frame 1");
