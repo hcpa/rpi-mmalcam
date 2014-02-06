@@ -17,9 +17,9 @@ Done
 - test with sample image w/o noise
 - otimized GPU_FFT by using the symmetry of real-to-complex DFTs, saves around 50%
 - makefile sets suid for mmalyuv. It's convenient but a security risk
+- use real-world star pics. YEAH!
 
 Todo
-- use real-world star pics
 - stabilize after failed fft_gpu -> seems like camera access is not returned in case
   of gpu error
 - control callback / set camera parameters like exposure time, white balance, iso
