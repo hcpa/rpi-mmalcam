@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <time.h>
 #include <math.h>
+#include <gd.h>
 #include <interface/mmal/mmal.h>
 #include <interface/mmal/mmal_encodings.h>
 #include <interface/mmal/util/mmal_default_components.h>
@@ -25,14 +26,41 @@ static void create_sample_image( pix_y_t *pic, int shift_x, int shift_y )
 {
 	int i, j;
 	uint8_t *dat;
+	FILE *f;
+	gdImage *image;
+
+	
+	if( shift_x > 0 )
+		f = fopen("stern1.png","rb");
+	else
+		f = fopen("stern2.png","rb");
+	
+	if ( !f )
+	{
+		ERROR("cannot open starfield PNG");
+		return;
+	}
+	
+	image = gdImageCreateFromPng( f );
+	fclose(f);
+	
+	if( !image )
+	{
+		ERROR("cannot create image from PNG file");	
+		return;
+	}	
 	
 	dat = pic->data;
 	for( j = 0; j < pic->height; j++ )
 		for( i = 0; i < pic->width; i++, dat++)
-			if( sqrtf(powf(j-MAX_CAM_HEIGHT_PADDED/2+shift_y,2)+powf(i-MAX_CAM_WIDTH_PADDED/2+shift_x,2))<10 )
-				*dat = 0xff;
-			else
-				*dat = 0;
+		{
+			int color = gdImageGetPixel( image, i, j );
+			*dat = (((color>>16) & 0xff) + ((color>>8) & 0xff) + (color & 0xff))/3;
+			// if( sqrtf(powf(j-MAX_CAM_HEIGHT_PADDED/2+shift_y,2)+powf(i-MAX_CAM_WIDTH_PADDED/2+shift_x,2))<10 )
+			// 	*dat = 0xff;
+			// else
+			// 	*dat = 0;
+		}
 }
 
 
@@ -272,7 +300,7 @@ int main(int argc, char *argv[])
 	
 	// DEBUG - FFT mit Beugungsmuster überprüfen
 	// img1 wird mit weißem Kreis Radius 10 überschrieben
-	// create_sample_image( &img1, 0, 0 );
+	create_sample_image( &img1, 0, 0 );
 	
 	
     vcos_sleep(1000);
@@ -371,7 +399,7 @@ int main(int argc, char *argv[])
 	
 	// DEBUG - FFT mit Beugungsmuster überprüfen
 	// img2 wird mit senkrechtem Strich leicht nach rechts unten verschoben überschrieben
-	// create_sample_image( &img2, 23, 17 );
+	create_sample_image( &img2, 23, 17 );
 
 	DEBUG("GPU phase correlation");
 
