@@ -15,15 +15,19 @@ Done
 - use gpu_fft code provided http://www.raspberrypi.org/archives/5934
 - implement phase correlation with gpu_fft
 - test with sample image w/o noise
+- otimized GPU_FFT by using the symmetry of real-to-complex DFTs, saves around 50%
+- makefile sets suid for mmalyuv. It's convenient but a security risk
 
 Todo
+- use real-world star pics
 - stabilize after failed fft_gpu -> seems like camera access is not returned in case
   of gpu error
 - control callback / set camera parameters like exposure time, white balance, iso
-- can it run w/o sudo?
 - improve phase shift for higher resolutions. works fine up to 1536 x 1152
-- MAKE MUCH FASTER!
+- optimize
 - add/average multiple images
 - low light performance
 - denoise image
-- optimize for permanent run
+- optimize for permanent run, memory leaks, files, etc
+
+Open questions: how to detect rotation? Is it relevant?

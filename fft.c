@@ -471,9 +471,8 @@ pixPhaseCorrelation(fpix_y_t       *pixr,
 					int32_t   		*pyloc)
 {
 	int32_t        	i, j, k;
-	float      	cr, ci, r;
+	float      		cr, ci, r;
 	fftwf_complex  	*outputr, *outputs, *outputd;
-	// PIX           	*pixt1, *pixt2;
 	fpix_y_t     	*dpix;
 	long			before, after;
 	
@@ -493,12 +492,6 @@ pixPhaseCorrelation(fpix_y_t       *pixr,
 		return(-1);
 	}
 	
-	/* Process the reference image */
-    // pixt1 = pixClone(pixr);
-	
-	/* Process the input image */
-    // pixt2 = pixClone(pixs);
-    
 	/* Calculate the DFT of pixr and pixs */
 	before = millis();
 	if ((outputr = fpixDFT(pixr)) == NULL)
@@ -507,7 +500,7 @@ pixPhaseCorrelation(fpix_y_t       *pixr,
 		return(-1);
 	}
 	after = millis();
-	MSG( "fft pixr %ld milliseconds", after-before );
+	DEBUG( "fft pixr %ld milliseconds", after-before );
 	before = after;
 	if ((outputs = fpixDFT(pixs)) == NULL) {
 		fftwf_free(outputr);
@@ -515,7 +508,7 @@ pixPhaseCorrelation(fpix_y_t       *pixr,
 		return(-1);
 	}
 	after = millis();
-	MSG( "fft pixs %ld milliseconds", after-before );
+	DEBUG( "fft pixs %ld milliseconds", after-before );
 	outputd = (fftwf_complex *) fftwf_malloc(sizeof(fftwf_complex) * pixr->height * (pixr->width / 2 + 1));
 	if (outputd == NULL) {
 		fftwf_free(outputr);
@@ -530,33 +523,24 @@ pixPhaseCorrelation(fpix_y_t       *pixr,
 		for (j = 0; j < pixr->width / 2 + 1; j++, k++) {
 			cr = creal(outputs[k]) * creal(outputr[k]) - cimag(outputs[k]) * (-cimag(outputr[k]));
 			ci = creal(outputs[k]) * (-cimag(outputr[k])) + cimag(outputs[k]) * creal(outputr[k]);
-			r = sqrt(pow(cr, 2.) + pow(ci, 2.));
+			r = sqrtf(powf(cr, 2.) + powf(ci, 2.));
 			outputd[k] = (cr / r) + I * (ci / r);
 		}
 	}
 	after = millis();
-	MSG( "cross-power spectrum %ld milliseconds", after-before );
+	DEBUG( "cross-power spectrum %ld milliseconds", after-before );
 	
 	/* Compute the inverse DFT of the cross-power spectrum
 	    and find its peak */
 	before = millis();
 	dpix = fpixInverseDFT(outputd, pixr->width, pixr->height);
 	after = millis();
-	MSG( "inverse DFT %ld milliseconds", after-before );
-	
-	// complex_save(outputs, 1, pixr->width/2+1,pixr->height,"outputr-re.jpg");
-	// complex_save(outputs, 0, pixr->width/2+1,pixr->height,"outputr-im.jpg");
-	// complex_save(outputr, 1, pixs->width/2+1,pixs->height,"outputs-re.jpg");
-	// complex_save(outputr, 0, pixs->width/2+1,pixs->height,"outputs-im.jpg");
-	// complex_save(outputd, 1, pixr->width/2+1,pixr->height,"outputd-re.jpg");
-	// complex_save(outputd, 0, pixr->width/2+1,pixr->height,"outputd-im.jpg");
-	
-//	y_float_save(dpix->data, dpix->width, dpix->height,"revFFTresult.jpg");
+	DEBUG( "inverse DFT %ld milliseconds", after-before );
 	
 	before = millis();
 	fpixGetMax(dpix, ppeak, pxloc, pyloc);
 	after = millis();
-	MSG( "find max %ld milliseconds", after-before );
+	DEBUG( "find max %ld milliseconds", after-before );
 	
 	if (*pxloc >= pixr->width / 2)
 		*pxloc -= pixr->width;

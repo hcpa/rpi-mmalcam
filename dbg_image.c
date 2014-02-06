@@ -146,7 +146,7 @@ uint32_t y_complex_save( fftwf_complex *data, uint32_t magnitude, uint32_t w, ui
 			{
 				re = creal(*dat);
 				im = cimag(*dat);
-				d = sqrt(pow(re,2)+pow(im,2));
+				d = sqrtf(powf(re,2)+powf(im,2));
 			} else {
 				re = creal(*dat);
 				im = cimag(*dat);
@@ -166,7 +166,7 @@ uint32_t y_complex_save( fftwf_complex *data, uint32_t magnitude, uint32_t w, ui
 			{
 				re = creal(*dat);
 				im = cimag(*dat);
-				d = sqrt(re*re+im*im);
+				d = sqrtf(re*re+im*im);
 			} else {
 				re = creal(*dat);
 				im = cimag(*dat);
@@ -270,9 +270,9 @@ int fftwf_result_save( fftwf_complex *data, int spectrum, int phase_angle, int p
 		for(i=0;i<w;i++,dat++)
 		{
 			if( spectrum || power_spectrum )
-				power = pow(creal(*dat),2) + pow(cimag(*dat),2);
+				power = powf(creal(*dat),2) + powf(cimag(*dat),2);
 			if( spectrum ) {
-				d = sqrt(power);
+				d = sqrtf(power);
 				if( d> max_s )
 					max_s = d;
 			}
@@ -295,11 +295,11 @@ int fftwf_result_save( fftwf_complex *data, int spectrum, int phase_angle, int p
 		for(i=0; i<w; i++)
 		{
 			if( spectrum || power_spectrum )
-				power = pow(creal(*dat),2) + pow(cimag(*dat),2);
+				power = powf(creal(*dat),2) + powf(cimag(*dat),2);
 
 
 			if( spectrum ){
-				d = sqrt(power);
+				d = sqrtf(power);
 				g = round(255.0 * d/max_s);
 				color = g + (g<<8) + (g<<16);
 				color &= 0xffffff; 
@@ -427,9 +427,9 @@ int gpufft_result_save( struct GPU_FFT_COMPLEX *data, int step, int spectrum, in
 		for(i=0;i<w;i++,dat++)
 		{
 			if( spectrum || power_spectrum )
-				power = pow(dat[i].re,2) + pow(dat[i].im,2);
+				power = powf(dat[i].re,2) + powf(dat[i].im,2);
 			if( spectrum ) {
-				d = sqrt(power);
+				d = sqrtf(power);
 				if( d> max_s )
 					max_s = d;
 			}
@@ -455,10 +455,10 @@ int gpufft_result_save( struct GPU_FFT_COMPLEX *data, int step, int spectrum, in
 		for( i = 0; i < w; i++,dat++ )
 		{
 			if( spectrum || power_spectrum )
-				power = pow(dat->re,2) + pow(dat->im,2);
+				power = powf(dat->re,2) + powf(dat->im,2);
 			if( spectrum )
 			{
-				d = sqrt(power);
+				d = sqrtf(power);
 				g = round(0xff * d/max_s);
 				color = g | (g<<8) | (g<<16);
 				gdImageSetPixel( image_s, i, j, color & 0xffffffl );
