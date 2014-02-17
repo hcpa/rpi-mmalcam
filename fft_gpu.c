@@ -114,7 +114,6 @@ static struct GPU_FFT *pixDFT_GPU_no_final_transpose( pix_y_t *pic )
     struct GPU_FFT_COMPLEX *base;
     struct GPU_FFT *fft;
 	uint8_t *picdata;
-	long bef,aft;
 	
 	log2_N = (int)round(log2(pic->width));
 
@@ -127,7 +126,6 @@ static struct GPU_FFT *pixDFT_GPU_no_final_transpose( pix_y_t *pic )
         case -4: ERROR("Cannot open /dev/mem, must run as root.");  return NULL;
     }
 
-	bef = millis();
 	for( j=0; j < pic->height; j++ )
 	{
 		base = fft->in + j*fft->step; // input buffer
@@ -138,35 +136,21 @@ static struct GPU_FFT *pixDFT_GPU_no_final_transpose( pix_y_t *pic )
 			base[i].im = 0;			
 		}
     }
-	aft = millis();
-	DEBUG("byte->complex %ld millis",aft-bef);
 
 	usleep(1); // Yield to OS
-	bef = millis();
 
 	gpu_fft_execute(fft); 
 
-	aft = millis();
-	DEBUG("fft horiz %ld millis",aft-bef);
-
-	bef=millis();
 
 	// In-place transposition of the result
 	in_place_transpose_square_left_half( fft->out, pic->height, fft->step );	
 	
-	aft = millis();
-	DEBUG("transpose %ld millis",aft-bef);
-	bef = aft;
-
 	usleep(1); // Yield to OS
 	// this execution will work from fft->out back to fft->in
 	// If we just transpose the left half of the matrix to the upper half
 	// it's not necessary to perform the FFT on all rows. half of the rows
 	// would be sufficient. but since gpu_fft is so fast, it's not really an issue.
 	gpu_fft_execute(fft); // call one or many times
-	aft = millis();
-	DEBUG("fft vert %ld millis",aft-bef);
-	
 
 	return fft;
 
@@ -175,7 +159,6 @@ static struct GPU_FFT *pixDFT_GPU_no_final_transpose( pix_y_t *pic )
 struct GPU_FFT *pixDFT_GPU( pix_y_t *pic )
 {
 	struct GPU_FFT *fft;
-	long bef,aft;
 	
 	if( !pic )
 	{
@@ -208,10 +191,7 @@ struct GPU_FFT *pixDFT_GPU( pix_y_t *pic )
 	}
 	
 	// Transpose back
-	bef = millis();
 	in_place_transpose_square_upper_half( fft->in, pic->height, fft->step );
-	aft = millis();
-	DEBUG("2nd transpose %ld millis",aft-bef);
 
 	return fft;
 }
@@ -228,7 +208,6 @@ int pixPhaseCorrelate_GPU( pix_y_t *pixr, pix_y_t *pixs, float *ppeak, int *px, 
     int i, j, ret, log2_N;
     struct GPU_FFT_COMPLEX *base_r, *base_s, *base_i;
     struct GPU_FFT *fftr, *ffts, *ffti;
-	long bef,aft;
 	float maxval;
 	int xmaxloc, ymaxloc;
 
@@ -292,8 +271,6 @@ int pixPhaseCorrelate_GPU( pix_y_t *pixr, pix_y_t *pixs, float *ppeak, int *px, 
     }
 
 
-	bef = millis();
-
 	// calculate cross-power spectrum
 	// 	o_{i,j} = sqrt((re(s_{i,j})*re(r_{i,j}) - im(s_{i,j})*-im(r__{i,j}))^2 + (re(s_{i,j})*-im(r_{i,j}) - im(s_{i,j})*re(r__{i,j}))^2)
 	// 
@@ -327,8 +304,6 @@ int pixPhaseCorrelate_GPU( pix_y_t *pixr, pix_y_t *pixs, float *ppeak, int *px, 
 	for( j = pixr->width/2; j < pixr->width; j++ )
 		memset(ffti->in + j*ffti->step, 0, pixr->height*sizeof(struct GPU_FFT_COMPLEX));
 	
-	aft = millis();
-	DEBUG("cross-power spectrum %ld millis",aft-bef);
 	
 	// Free fftr, ffts
 	free_fft_gpu( fftr );
@@ -338,31 +313,21 @@ int pixPhaseCorrelate_GPU( pix_y_t *pixr, pix_y_t *pixs, float *ppeak, int *px, 
 	// 
 	// p = InverseDFT_GPU( o );
 	usleep(1); // Yield to OS
-	bef = millis();
 
 	gpu_fft_execute(ffti); // call one or many times
 
-	aft = millis();
-	DEBUG("inverse fft vert %ld millis",aft-bef);
-
-	bef=millis();
 
 	// In-place transposition of the result
 	// this may be incorrect for INVERSE FFT
 	// but it works for now, see above and below
 	in_place_transpose_square_upper_half( ffti->out, pixr->height, ffti->step );	
 	
-	aft = millis();
-	DEBUG("transpose %ld millis",aft-bef);
-	bef = aft;
 
 	usleep(1); // Yield to OS
 	// this execution will work from out back to in
 	// This may fail. I've set the right half of the matrix to 0 but this still may not be correct
 	// 2014-02-06 It works for now, for synthesized and real pics, so I leave it as is is. 
 	gpu_fft_execute(ffti); // call one or many times
-	aft = millis();
-	DEBUG("inverse fft horiz %ld millis",aft-bef);
 	// RESULT IS NOW NOT-TRANSPOSED IN ffts->in 
 	
 	// 

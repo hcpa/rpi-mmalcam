@@ -17,6 +17,10 @@
 #define MAX_CAM_HEIGHT 1024
 #define MAX_CAM_HEIGHT_PADDED 1024
 
+#define DBG_PAD_X 128
+#define DBG_PAD_Y 128
+
+
 #define MAX_FRAMES 3 
 
 

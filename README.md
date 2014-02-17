@@ -24,12 +24,26 @@ Done
 
 
 Todo
-- optimize for permanent run, memory leaks, files, etc
+- Branch "permanent_run": optimize for permanent run, memory leaks, files, etc
+  structure
+  dbg load stars( padding 128 pixels each side ) - 1280x1280
+    - first shot  (x frames)
+  dbg copy center of stars to first frame
+    - fft first shot
+  	- loop 1..until interrupted
+  	      - sleep some time 
+          - new shot (x frames)
+	    dbg copy stars (+shift_x +/-random_x, shift_y +/-ranyom_y) to new shot (log total amount of shift (x,y) someplace)
+		  - phase correlation 1st and new shot -> (shift_x, shift_y)
+		  - send (shift_x,shift_y) to motor control (nop)
+		  - dbg: log (shift_x, shift_y), save it in global variables
+	- end loop
+
 - low light performance
 - denoise image
 - control callback / set camera parameters like exposure time, white balance, iso
   see discussion here http://www.raspberrypi.org/forum/viewtopic.php?f=43&t=61445
-	raspistill -w 1024 -h 1024 -t 1000 -ss 500000 -ex sports -ev 25 
+	raspistill -w 1024 -h 1024 -t 1000 -ss 500000 -ex sports -ev 25
 	mmal_port_parameter_set_uint32(camera->control, MMAL_PARAMETER_SHUTTER_SPEED, 500000);
 	mmal_port_parameter_set_int32(camera->control, MMAL_PARAMETER_EXPOSURE_COMP , 25);
 	// mmal_port_parameter_set_uint32(camera->control, MMAL_PARAMETER_ISO, 1600);

@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <time.h>
 #include <math.h>
 #include <unistd.h>
@@ -16,6 +17,10 @@
 #include "fft.h"
 #include "fft_gpu.h"
 
+static int keep_looping;
+static int shift_x;
+static int shift_y;
+
 static long millis()
 {
 	struct timespec tt;
@@ -23,54 +28,66 @@ static long millis()
 	return tt.tv_sec*1000l + tt.tv_nsec/1000000;
 }
 
+
 static void signal_handler(int signal_number)
 {
     // Going to abort on all other signals
-	ERROR("Aborting program\n");
-	exit(130);
+	ERROR("Aborting program...");
+	keep_looping = 0;
+	return;
 }
-	
 
 
-static void create_sample_image( pix_y_t *pic, int shift_x, int shift_y )
+static int dbg_load_stars( pix_y_t *pic )
 {
 	int i, j;
 	uint8_t *dat;
 	FILE *f;
 	gdImage *image;
+	
+	f = fopen("sterne_pad.png","rb");
 
-	
-	if( shift_x > 0 )
-		f = fopen("stern1.png","rb");
-	else
-		f = fopen("stern2.png","rb");
-	
-	if ( !f )
-	{
-		ERROR("cannot open starfield PNG");
-		return;
+	if( !f ) {
+		ERROR( "cannot open padded stars PNG" );
+		return (-1);
 	}
 	
 	image = gdImageCreateFromPng( f );
-	fclose(f);
+	fclose( f );
 	
-	if( !image )
-	{
-		ERROR("cannot create image from PNG file");	
-		return;
-	}	
-	
+	if( !image ) {
+		ERROR( "cannot create image from PNG file" );
+		return (-1);
+	}
+
 	dat = pic->data;
 	for( j = 0; j < pic->height; j++ )
-		for( i = 0; i < pic->width; i++, dat++)
+		for( i = 0; i < pic->width; i++ )
 		{
-			int color = gdImageGetPixel( image, i, j );
+			int color = gdImageGetPixel( image, i+DBG_PAD_X, j+DBG_PAD_Y );
 			*dat = (((color>>16) & 0xff) + ((color>>8) & 0xff) + (color & 0xff))/3;
-			// if( sqrtf(powf(j-MAX_CAM_HEIGHT_PADDED/2+shift_y,2)+powf(i-MAX_CAM_WIDTH_PADDED/2+shift_x,2))<10 )
-			// 	*dat = 0xff;
-			// else
-			// 	*dat = 0;
 		}
+	return(0);
+}
+
+static int dbg_copy_stars( pix_y_t *dst, pix_y_t *src, int sh_x, int sh_y )
+{
+	int j;
+	uint8_t *src_b, *dst_b;
+	
+	if( src->width + sh_x < dst->width )
+		return (-1);
+	if( src->height + sh_y < dst->height )
+		return (-1);
+	
+	
+	for( j = 0; j < dst->height; j++ )
+	{
+		src_b = src->data + (sh_y+j)*src->width + sh_x;
+		dst_b = dst->data + j*dst->width;
+		memcpy( dst_b, src_b, dst->width );
+	}
+	return (0);
 }
 
 
@@ -80,7 +97,6 @@ static void y_writer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
 	
     PORT_USERDATA *pData = (PORT_USERDATA *)port->userdata;	
 	
-	// DEBUG("callback aufgerufen");
 	if( pData )
 	{
 		if( buffer->length && pData->image_buffer && pData->bytes_written < pData->max_bytes )
@@ -140,26 +156,128 @@ static void y_writer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
     if (complete)
        vcos_semaphore_post(&(pData->complete_semaphore));
 	
-	// DEBUG("callback return");
 }
+
+
+static int prepare_camera( MMAL_COMPONENT_T **camera_component, MMAL_PORT_T **still_port, MMAL_POOL_T **pool_out )
+{
+	MMAL_STATUS_T status;
+	MMAL_ES_FORMAT_T *format_out;	
+	
+	DEBUG("prepare_camera");
+
+	status = mmal_component_create( MMAL_COMPONENT_DEFAULT_CAMERA, camera_component );
+	if( status != MMAL_SUCCESS )
+	{
+		ERROR("cannot create component %s",MMAL_COMPONENT_DEFAULT_CAMERA);
+		return(-1);
+	}
+	
+	if( !(*camera_component)->output_num )
+	{
+		ERROR("Camera doesn't have output ports - which ist really strange");
+		mmal_component_destroy( *camera_component );
+		return(-1);
+	}
+	
+	*still_port = (*camera_component)->output[MMAL_CAMERA_CAPTURE_PORT];
+
+	format_out = (*still_port)->format;
+	
+    format_out->encoding = MMAL_ENCODING_I420;
+    format_out->encoding_variant = MMAL_ENCODING_I420;
+
+	format_out->es->video.width = MAX_CAM_WIDTH;
+	format_out->es->video.height = MAX_CAM_HEIGHT;
+	format_out->es->video.crop.x = 0;
+	format_out->es->video.crop.y = 0;
+	format_out->es->video.crop.width = MAX_CAM_WIDTH;
+	format_out->es->video.crop.height = MAX_CAM_HEIGHT;
+	format_out->es->video.frame_rate.num = STILLS_FRAME_RATE_NUM;
+	format_out->es->video.frame_rate.den = STILLS_FRAME_RATE_DEN;
+	
+	if( (*still_port)->buffer_num < (*still_port)->buffer_num_min )
+		(*still_port)->buffer_num  = (*still_port)->buffer_num_min;
+
+	(*still_port)->buffer_size = (*still_port)->buffer_size_recommended;
+
+	status = mmal_port_format_commit( *still_port );
+	if( status != MMAL_SUCCESS )
+	{
+		ERROR( "cannot create commit format" );
+		mmal_component_destroy( *camera_component );
+		return(-1);
+	}
+	
+	status = mmal_component_enable( *camera_component );
+	if( status != MMAL_SUCCESS )
+	{
+		ERROR( "Cannot enable camera component" );
+		mmal_component_destroy( *camera_component );
+		return(-1);
+	}
+	
+    *pool_out = mmal_port_pool_create(*still_port, (*still_port)->buffer_num, (*still_port)->buffer_size);
+	
+    if (!(*pool_out))
+    {
+       ERROR("Failed to create buffer header pool for encoder output port %s", (*still_port)->name);
+	   return (-1);
+    }
+	
+	return 0;
+}
+
+static int capture_frames( PORT_USERDATA *callback_data, MMAL_PORT_T *still_port, MMAL_POOL_T *pool_out, int frames )
+{
+	for( callback_data->current_frame = 0; callback_data->current_frame < frames; callback_data->current_frame++ )
+	{
+		callback_data->bytes_written = 0;
+
+		int q, num = mmal_queue_length(pool_out->queue);
+
+		for ( q=0; q<num; q++ )
+		{
+			MMAL_BUFFER_HEADER_T *buffer = mmal_queue_get( pool_out->queue );
+
+			if (!buffer) { 
+				ERROR("Unable to get a required buffer %d from pool queue", q); return (-1); }
+
+			if (mmal_port_send_buffer(still_port, buffer)!= MMAL_SUCCESS) {
+				ERROR("Unable to send a buffer to encoder output port (%d)", q); return (-1); }
+		}
+	
+		if ( mmal_port_parameter_set_boolean( still_port, MMAL_PARAMETER_CAPTURE, 1 ) != MMAL_SUCCESS)
+		{
+			ERROR("Failed to start capture");
+			return (-1);
+		}
+		else
+		{
+			// Wait for capture to complete
+			// For some reason using vcos_semaphore_wait_timeout sometimes returns immediately with bad parameter error
+			// even though it appears to be all correct, so reverting to untimed one until figure out why its erratic
+			vcos_semaphore_wait( &callback_data->complete_semaphore );
+		}
+	}
+	
+	return (0);
+}
+
+
 
 int main(int argc, char *argv[])
 {
 	MMAL_COMPONENT_T *camera_component;
-	MMAL_STATUS_T status;
 	VCOS_STATUS_T vcos_status;
-	MMAL_ES_FORMAT_T *format_out;
 	MMAL_POOL_T *pool_out;
 	MMAL_PORT_T *still_port = NULL;
     PORT_USERDATA callback_data;
-	long time_before, time_after;
-	pix_y_t img1, img2;
-	fpix_y_t *fimg1, *fimg2;
-	fftwf_complex *fft_frame1, *fft_frame2;
-	struct GPU_FFT *frame1_fft_gpu;
-	int num, q;
+	pix_y_t img1, img2, star_base;
+	// struct GPU_FFT *frame1_fft_gpu;
 	float peak;
 	int32_t xloc, yloc;
+	
 
 	
 
@@ -174,78 +292,25 @@ int main(int argc, char *argv[])
 		exit(-1);
 	}
 	
-	
+	srandom(millis());
     signal(SIGINT, signal_handler);
 	
-	/* 
-	*  Kamera-Komponente
-	*
-	*/
-	DEBUG("Starting camera component creation stage");
-
-	status = mmal_component_create( MMAL_COMPONENT_DEFAULT_CAMERA, &camera_component);
-	if( status != MMAL_SUCCESS )
-	{
-		ERROR("cannot create component %s",MMAL_COMPONENT_DEFAULT_CAMERA);
-		return(-1);
+	
+	star_base.width = MAX_CAM_WIDTH_PADDED + 2*DBG_PAD_X;
+	star_base.height = MAX_CAM_HEIGHT_PADDED + 2*DBG_PAD_Y;
+	star_base.data = calloc( (MAX_CAM_WIDTH_PADDED + 2*DBG_PAD_X) * (MAX_CAM_HEIGHT_PADDED + 2*DBG_PAD_Y), sizeof( uint8_t ) );
+	if( !star_base.data ) {
+		ERROR("out of memory data");
+		exit(-1);
 	}
+	dbg_load_stars( &star_base );
 	
-	if( !camera_component->output_num )
+
+	if( prepare_camera( &camera_component, &still_port, &pool_out ) )
 	{
-		ERROR("Camera doesn't have output ports - which ist really strange");
-		mmal_component_destroy( camera_component );
-		return(-1);
+		ERROR( "failed to prepare camera" );
+		goto error;
 	}
-	
-	still_port = camera_component->output[MMAL_CAMERA_CAPTURE_PORT];
-
-	format_out = still_port->format;
-	
-    format_out->encoding = MMAL_ENCODING_I420;
-    format_out->encoding_variant = MMAL_ENCODING_I420;
-
-	format_out->es->video.width = MAX_CAM_WIDTH;
-	format_out->es->video.height = MAX_CAM_HEIGHT;
-	format_out->es->video.crop.x = 0;
-	format_out->es->video.crop.y = 0;
-	format_out->es->video.crop.width = MAX_CAM_WIDTH;
-	format_out->es->video.crop.height = MAX_CAM_HEIGHT;
-	format_out->es->video.frame_rate.num = STILLS_FRAME_RATE_NUM;
-	format_out->es->video.frame_rate.den = STILLS_FRAME_RATE_DEN;
-	
-	if( still_port->buffer_num < still_port->buffer_num_min )
-		still_port->buffer_num  = still_port->buffer_num_min;
-
-	still_port->buffer_size = still_port->buffer_size_recommended;
-
-	status = mmal_port_format_commit( still_port );
-	if( status != MMAL_SUCCESS )
-	{
-		ERROR( "cannot create commit format" );
-		mmal_component_destroy( camera_component );
-		return(-1);
-	}
-	
-	status = mmal_component_enable( camera_component );
-	if( status != MMAL_SUCCESS )
-	{
-		ERROR( "Cannot enable camera component" );
-		mmal_component_destroy( camera_component );
-		return(-1);
-	}
-	
-    pool_out = mmal_port_pool_create(still_port, still_port->buffer_num, still_port->buffer_size);
-	
-    if (!pool_out)
-    {
-       ERROR("Failed to create buffer header pool for encoder output port %s", still_port->name);
-	   goto error;
-    }
-	
-	/*
-	* Ende Kamera–Komponente
-	*
-	*/
 	
 
 	callback_data.camera_pool = pool_out;
@@ -256,7 +321,7 @@ int main(int argc, char *argv[])
     vcos_assert(vcos_status == VCOS_SUCCESS);
 	
 	
-	DEBUG("sleeping for a second or so to have exposure adjust automatically");
+	DEBUG("sleeping for some time have exposure adjust automatically");
 	// results show: sleeping time can be much shorter, tested down to 2ms
 	// although then exposure and awb seem to be somewhat off and image size huge 
 	// next frames can go with a much shorter exposure like 30ms
@@ -278,82 +343,29 @@ int main(int argc, char *argv[])
     still_port->userdata = (struct MMAL_PORT_USERDATA_T *)&callback_data;
 	
 	
-	DEBUG("enabling encoder output port w/ callback");
-	status = mmal_port_enable( still_port, y_writer_callback );
-	if( status != MMAL_SUCCESS )
+	if( mmal_port_enable( still_port, y_writer_callback ) != MMAL_SUCCESS )
 	{
 		ERROR("failed to enable camera still output port");
 		goto error;
 	}
 
-	for( callback_data.current_frame = 0; callback_data.current_frame < MAX_FRAMES; callback_data.current_frame++ )
-	{
-		callback_data.bytes_written = 0;
 
-		DEBUG("queue_length-Kram");
-		num = mmal_queue_length(pool_out->queue);
-
-		for ( q=0; q<num; q++ )
-		{
-			MMAL_BUFFER_HEADER_T *buffer = mmal_queue_get( pool_out->queue );
-
-			if (!buffer) { ERROR("Unable to get a required buffer %d from pool queue", q); goto error; }
-
-			if (mmal_port_send_buffer(still_port, buffer)!= MMAL_SUCCESS) {
-				ERROR("Unable to send a buffer to encoder output port (%d)", q); goto error; }
-		}
-	
-		DEBUG("starting capture");
-		time_before = millis();
-		if ( mmal_port_parameter_set_boolean( still_port, MMAL_PARAMETER_CAPTURE, 1 ) != MMAL_SUCCESS)
-		{
-			ERROR("Failed to start capture");
-			goto error;
-		}
-		else
-		{
-			// Wait for capture to complete
-			// For some reason using vcos_semaphore_wait_timeout sometimes returns immediately with bad parameter error
-			// even though it appears to be all correct, so reverting to untimed one until figure out why its erratic
-			DEBUG("wait semaphore");	
-			vcos_semaphore_wait( &callback_data.complete_semaphore );
-			DEBUG( "Finished capture" );
-		}
-		time_after = millis();
-		DEBUG("Frame %d in %ld milliseconds", callback_data.current_frame, time_after-time_before );
+	if( capture_frames( &callback_data, still_port, pool_out, MAX_FRAMES ) ) {
+		ERROR( "failed to capture first shot" );
+		goto error;
 	}
 	
-	DEBUG("Callback_data max_bytes %d bytes_written %d", callback_data.max_bytes, callback_data.bytes_written );
 	
-	DEBUG("end capture first shot");
+	// DEBUG
+	// overwrite first frame with stars 
+	dbg_copy_stars( &img1, &star_base, DBG_PAD_X, DBG_PAD_Y );
+	y_int_save( img1.data, img1.width, img1.height, "img1.jpg" );
 	
-	// DEBUG - FFT mit Beugungsmuster überprüfen
-	// img1 wird mit weißem Kreis Radius 10 überschrieben
-	// create_sample_image( &img1, 0, 0 );
-	
-	
-    vcos_sleep(1000);
-	
-	DEBUG("start fft frame 1");
-
-	time_before = millis();
-	
-	fft_frame1 = pixDFT( &img1 );
-	
-	time_after = millis();
-	DEBUG("%ld milliseconds",time_after-time_before);
-
-	fftwf_result_save( fft_frame1, 1, 1, 1, MAX_CAM_WIDTH_PADDED/2 + 1, MAX_CAM_HEIGHT_PADDED, "fftw1");
-
-	fftwf_free( fft_frame1 );
-	
-	DEBUG( "fft frame 1 done" );
 	
 	// GPU FFT
+	/*
 	DEBUG("start fft gpu frame 1");
 
-	time_before = millis();
-	
 	frame1_fft_gpu = pixDFT_GPU( &img1 );
 	if( !frame1_fft_gpu )
 	{
@@ -361,21 +373,9 @@ int main(int argc, char *argv[])
 		goto error;
 	}
 	
-	time_after = millis();
-	DEBUG("%ld milliseconds",time_after-time_before);
-
-	gpufft_result_save( frame1_fft_gpu->in, frame1_fft_gpu->step, 1, 1, 1, MAX_CAM_WIDTH_PADDED/2, MAX_CAM_HEIGHT_PADDED, "gpu_fft");
-
-	free_fft_gpu( frame1_fft_gpu );
-	
-	DEBUG( "fft gpu frame 1 done" );
-	
-	
-	
-	/*
-	* Second Frame
-	*
 	*/
+
+
 	img2.width = MAX_CAM_WIDTH_PADDED;
 	img2.height = MAX_CAM_HEIGHT_PADDED;
 	img2.data = calloc( MAX_CAM_WIDTH_PADDED * MAX_CAM_HEIGHT_PADDED, sizeof( uint8_t ));
@@ -387,108 +387,63 @@ int main(int argc, char *argv[])
 	
 	callback_data.image_buffer = img2.data;
 	callback_data.max_bytes = MAX_CAM_WIDTH_PADDED * MAX_CAM_HEIGHT_PADDED;
-	callback_data.bytes_written = 0;
-	callback_data.current_frame = 0;
-	
-    still_port->userdata = (struct MMAL_PORT_USERDATA_T *)&callback_data;
-	
-	// DEBUG("queue_length-Kram");
-    num = mmal_queue_length(pool_out->queue);
 
-	// TODO I don't really understand what this does.
-    for ( q=0; q<num; q++ )
-    {
-       MMAL_BUFFER_HEADER_T *buffer = mmal_queue_get( pool_out->queue );
 
-       if (!buffer)
-	   {
-          ERROR("Unable to get a required buffer %d from pool queue", q);
-		  goto error;
-	  }
+	keep_looping = 0;
+	do {
+		callback_data.bytes_written = 0;
+		callback_data.current_frame = 0;
 
-       if (mmal_port_send_buffer(still_port, buffer)!= MMAL_SUCCESS)
-	   {
-          ERROR("Unable to send a buffer to encoder output port (%d)", q);
-		  goto error;
-	  }
-    }
+		if( capture_frames( &callback_data, still_port, pool_out, MAX_FRAMES ) ) {
+			ERROR( "failed to capture shot x" );
+			goto error;
+		}
+
+		// DEBUG overwrite frame with stars
+		shift_x += random()&&0x1f - 16;
+		shift_y += random()&&0x1f - 16;
+		if( abs(shift_x) > DBG_PAD_X - 15  )
+			shift_x = 0;
+		if( abs(shift_y) > DBG_PAD_Y - 15 )
+			shift_y = 0;
+		DEBUG( "shiftx: %d, shift_y: %d", shift_x, shift_y );
+
+		dbg_copy_stars( &img2, &star_base, DBG_PAD_X + shift_x, DBG_PAD_Y + shift_y );
 		
-	DEBUG("starting 2nd capture");
-    if ( mmal_port_parameter_set_boolean( still_port, MMAL_PARAMETER_CAPTURE, 1 ) != MMAL_SUCCESS)
-    {
-       ERROR("Failed to start 2nd capture");
-	   goto error;
-    }
-    else
-    {
-       // Wait for capture to complete
-       // For some reason using vcos_semaphore_wait_timeout sometimes returns immediately with bad parameter error
-       // even though it appears to be all correct, so reverting to untimed one until figure out why its erratic
-		DEBUG("wait semaphore");	
-		vcos_semaphore_wait( &callback_data.complete_semaphore );
-		DEBUG( "Finished capture" );
-    }
+		y_int_save( img2.data, img2.width, img2.height, "img2.jpg" );
+		
+		// TODO we could save a lot of time when calculating the FFT of the first pic in advance
+		if( pixPhaseCorrelate_GPU( &img1, &img2, &peak, &xloc, &yloc ) )
+		{
+			ERROR("cannot phase correlate");
+			goto error;		
+		}
+		else
+	    	DEBUG("peak: %f, x: %d, y:%d", peak, xloc, yloc );
 
-	DEBUG("Callback_data max_bytes %d bytes_written %d", callback_data.max_bytes, callback_data.bytes_written );	
+		
+		// TODO Motor control goes here
+
+		shift_x += xloc;
+		shift_y += yloc;
+		
+		if( abs(shift_x) > DBG_PAD_X - 15  )
+			shift_x = 0;
+		if( abs(shift_y) > DBG_PAD_Y - 15 )
+			shift_y = 0;
+
+	} while( keep_looping );
+
 	
-	DEBUG("end capture second shot");
 	
 	vcos_semaphore_delete(&callback_data.complete_semaphore);
 	
-	// DEBUG - FFT mit Beugungsmuster überprüfen
-	// img2 wird mit senkrechtem Strich leicht nach rechts unten verschoben überschrieben
-	// create_sample_image( &img2, 23, 17 );
-
-	DEBUG("GPU phase correlation");
-
-	time_before = millis();
-
-	if( pixPhaseCorrelate_GPU( &img1, &img2, &peak, &xloc, &yloc ) )
-	{
-		ERROR("cannot phase correlate");
-		goto error;		
-	}
-	else
-    	DEBUG("peak: %f, x: %d, y:%d", peak, xloc, yloc );
-
-	time_after = millis();
-	DEBUG("%ld milliseconds",time_after-time_before);
 
 	
-	
-	DEBUG("convert boths images to fpix");
-	time_before = millis();
-	fimg1 = pixConvertToFPix( &img1 );
-	fimg2 = pixConvertToFPix( &img2 );
+	// free_fft_gpu( frame1_fft_gpu );
 
-	DEBUG("phase correlation");
-
-
-	if( pixPhaseCorrelation( fimg1, fimg2, &peak, &xloc, &yloc ) )
-		ERROR("cannot phase correlate");		
-	else
-    	DEBUG("peak: %f, x: %d, y:%d", peak, xloc, yloc );
-
-	time_after = millis();
-	DEBUG("%ld milliseconds",time_after-time_before);
-
-
-	DEBUG("dumping frame 1");
-	y_int_save( img1.data, MAX_CAM_WIDTH_PADDED, MAX_CAM_HEIGHT_PADDED, "frame1.jpg" );
-	DEBUG("dumping frame 2");
-	y_int_save( img2.data, MAX_CAM_WIDTH_PADDED, MAX_CAM_HEIGHT_PADDED, "frame2.jpg" );
-
-
-	free( fimg1 );
-	free( fimg2 );
 	free( img1.data );
 	free( img2.data );
-
-    /*
-	* End second frame
-	*
-	*/
-	
 
 		
     mmal_component_destroy( camera_component );
