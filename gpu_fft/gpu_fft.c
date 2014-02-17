@@ -27,6 +27,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string.h>
 #include <stdio.h>
+#include <sys/mman.h>
 
 #include "gpu_fft.h"
 #include "mailbox.h"
@@ -93,6 +94,7 @@ int gpu_fft_prepare(
 
     ptr.vc = mem_lock(mb, handle);
     ptr.arm.vptr = mapmem(ptr.vc+GPU_FFT_MEM_MAP, size);
+	if( ptr.arm.vptr == MAP_FAILED ) return -4;
 
     // Control header
     info = (struct GPU_FFT *) (ptr.arm.bptr + size - info_bytes);

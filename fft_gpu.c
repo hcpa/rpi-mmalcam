@@ -123,7 +123,8 @@ static struct GPU_FFT *pixDFT_GPU_no_final_transpose( pix_y_t *pic )
     switch(ret) {
         case -1: ERROR("Unable to enable V3D. Please check your firmware is up to date."); return NULL;
         case -2: ERROR("log2_N=%d not supported.  Try between 8 and 17.", log2_N);         return NULL;
-        case -3: ERROR("Out of memory round1.  Try a smaller batch or increase GPU memory.\n");  return NULL;
+        case -3: ERROR("Out of memory round1.  Try a smaller batch or increase GPU memory.");  return NULL;
+        case -4: ERROR("Cannot open /dev/mem, must run as root.");  return NULL;
     }
 
 	bef = millis();
@@ -286,7 +287,8 @@ int pixPhaseCorrelate_GPU( pix_y_t *pixr, pix_y_t *pixs, float *ppeak, int *px, 
     switch(ret) {
         case -1: ERROR("Unable to enable V3D. Please check your firmware is up to date."); return (-1);
         case -2: ERROR("log2_N=%d not supported.  Try between 8 and 17.", log2_N);         return (-1);
-        case -3: ERROR("Out of memory round1.  Try a smaller batch or increase GPU memory.\n");  return (-1);
+        case -3: ERROR("Out of memory round1.  Try a smaller batch or increase GPU memory.");  return (-1);
+        case -4: ERROR("Cannot open /dev/mem, must run as root.");  return (-1);
     }
 
 

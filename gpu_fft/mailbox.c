@@ -47,7 +47,7 @@ void *mapmem(unsigned base, unsigned size)
    /* open /dev/mem */
    if ((mem_fd = open("/dev/mem", O_RDWR|O_SYNC) ) < 0) {
       printf("can't open /dev/mem\nThis program should be run as root. Try prefixing command with: sudo\n");
-      exit (-1);
+      return MAP_FAILED;
    }
    void *mem = mmap(
       0,
@@ -61,7 +61,7 @@ void *mapmem(unsigned base, unsigned size)
 #endif
    if (mem == MAP_FAILED) {
       printf("mmap error %d\n", (int)mem);
-      exit (-1);
+      return MAP_FAILED;
    }
    close(mem_fd);
    return (char *)mem + offset;

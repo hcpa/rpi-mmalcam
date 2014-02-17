@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <time.h>
 #include <math.h>
+#include <unistd.h>
 #include <gd.h>
 #include <interface/mmal/mmal.h>
 #include <interface/mmal/mmal_encodings.h>
@@ -21,6 +22,15 @@ static long millis()
 	clock_gettime(CLOCK_MONOTONIC,&tt);
 	return tt.tv_sec*1000l + tt.tv_nsec/1000000;
 }
+
+static void signal_handler(int signal_number)
+{
+    // Going to abort on all other signals
+	ERROR("Aborting program\n");
+	exit(130);
+}
+	
+
 
 static void create_sample_image( pix_y_t *pic, int shift_x, int shift_y )
 {
@@ -147,6 +157,14 @@ int main(int argc, char *argv[])
 
 	bcm_host_init();
 	
+	if( geteuid() != 0 )
+	{
+		ERROR("This program needs r/w access to /dev/mem. It must be run as root (suid).\nExiting...");
+		exit(-1);
+	}
+	
+	
+    signal(SIGINT, signal_handler);
 	
 	/* 
 	*  Kamera-Komponente
@@ -366,6 +384,11 @@ int main(int argc, char *argv[])
 	time_before = millis();
 	
 	frame1_fft_gpu = pixDFT_GPU( &img1 );
+	if( !frame1_fft_gpu )
+	{
+		ERROR("first GPU FFT failed");
+		goto error;
+	}
 	
 	time_after = millis();
 	DEBUG("%ld milliseconds",time_after-time_before);
@@ -406,7 +429,10 @@ int main(int argc, char *argv[])
 	time_before = millis();
 
 	if( pixPhaseCorrelate_GPU( &img1, &img2, &peak, &xloc, &yloc ) )
-		ERROR("cannot phase correlate");		
+	{
+		ERROR("cannot phase correlate");
+		goto error;		
+	}
 	else
     	DEBUG("peak: %f, x: %d, y:%d", peak, xloc, yloc );
 
