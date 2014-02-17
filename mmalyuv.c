@@ -93,7 +93,18 @@ static void y_writer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
 				to_write = buffer->length;
 			
 			mmal_buffer_header_mem_lock( buffer );
-			memcpy( pData->image_buffer+pData->bytes_written, buffer->data, to_write );
+			if( pData->current_frame )
+			{
+				uint8_t *dst = pData->image_buffer+pData->bytes_written;
+				uint8_t *src = buffer->data;
+				while( to_write > 0 ) {
+					*src = *src + (*dst-*src)/pData->current_frame;
+					src++;
+					dst++;
+					to_write--;
+				} 
+			} else // first frame, just memcpy
+				memcpy( pData->image_buffer+pData->bytes_written, buffer->data, to_write );
 			mmal_buffer_header_mem_unlock( buffer );
 
 			pData->bytes_written += to_write;
@@ -262,7 +273,7 @@ int main(int argc, char *argv[])
 	
 	callback_data.image_buffer = img1.data;
 	callback_data.max_bytes = MAX_CAM_WIDTH_PADDED * MAX_CAM_HEIGHT_PADDED;
-	callback_data.bytes_written = 0;
+	callback_data.current_frame = 0;
 	
     still_port->userdata = (struct MMAL_PORT_USERDATA_T *)&callback_data;
 	
@@ -275,42 +286,42 @@ int main(int argc, char *argv[])
 		goto error;
 	}
 
+	for( callback_data.current_frame = 0; callback_data.current_frame < MAX_FRAMES; callback_data.current_frame++ )
+	{
+		callback_data.bytes_written = 0;
+
+		DEBUG("queue_length-Kram");
+		num = mmal_queue_length(pool_out->queue);
+
+		for ( q=0; q<num; q++ )
+		{
+			MMAL_BUFFER_HEADER_T *buffer = mmal_queue_get( pool_out->queue );
+
+			if (!buffer) { ERROR("Unable to get a required buffer %d from pool queue", q); goto error; }
+
+			if (mmal_port_send_buffer(still_port, buffer)!= MMAL_SUCCESS) {
+				ERROR("Unable to send a buffer to encoder output port (%d)", q); goto error; }
+		}
 	
-	DEBUG("queue_length-Kram");
-    num = mmal_queue_length(pool_out->queue);
-
-    for ( q=0; q<num; q++ )
-    {
-       MMAL_BUFFER_HEADER_T *buffer = mmal_queue_get( pool_out->queue );
-
-       if (!buffer)
-	   {
-          ERROR("Unable to get a required buffer %d from pool queue", q);
-		  goto error;
-	  }
-
-       if (mmal_port_send_buffer(still_port, buffer)!= MMAL_SUCCESS)
-	   {
-          ERROR("Unable to send a buffer to encoder output port (%d)", q);
-		  goto error;
-	  }
-    }
-	
-	DEBUG("starting capture");
-    if ( mmal_port_parameter_set_boolean( still_port, MMAL_PARAMETER_CAPTURE, 1 ) != MMAL_SUCCESS)
-    {
-       ERROR("Failed to start capture");
-	   goto error;
-    }
-    else
-    {
-       // Wait for capture to complete
-       // For some reason using vcos_semaphore_wait_timeout sometimes returns immediately with bad parameter error
-       // even though it appears to be all correct, so reverting to untimed one until figure out why its erratic
-		DEBUG("wait semaphore");	
-		vcos_semaphore_wait( &callback_data.complete_semaphore );
-		DEBUG( "Finished capture" );
-    }
+		DEBUG("starting capture");
+		time_before = millis();
+		if ( mmal_port_parameter_set_boolean( still_port, MMAL_PARAMETER_CAPTURE, 1 ) != MMAL_SUCCESS)
+		{
+			ERROR("Failed to start capture");
+			goto error;
+		}
+		else
+		{
+			// Wait for capture to complete
+			// For some reason using vcos_semaphore_wait_timeout sometimes returns immediately with bad parameter error
+			// even though it appears to be all correct, so reverting to untimed one until figure out why its erratic
+			DEBUG("wait semaphore");	
+			vcos_semaphore_wait( &callback_data.complete_semaphore );
+			DEBUG( "Finished capture" );
+		}
+		time_after = millis();
+		DEBUG("Frame %d in %ld milliseconds", callback_data.current_frame, time_after-time_before );
+	}
 	
 	DEBUG("Callback_data max_bytes %d bytes_written %d", callback_data.max_bytes, callback_data.bytes_written );
 	
@@ -318,50 +329,10 @@ int main(int argc, char *argv[])
 	
 	// DEBUG - FFT mit Beugungsmuster überprüfen
 	// img1 wird mit weißem Kreis Radius 10 überschrieben
-	create_sample_image( &img1, 0, 0 );
+	// create_sample_image( &img1, 0, 0 );
 	
 	
     vcos_sleep(1000);
-	
-	/*
-	* Second Frame
-	*
-	*/
-	img2.width = MAX_CAM_WIDTH_PADDED;
-	img2.height = MAX_CAM_HEIGHT_PADDED;
-	img2.data = calloc( MAX_CAM_WIDTH_PADDED * MAX_CAM_HEIGHT_PADDED, sizeof( uint8_t ));
-	if( !img2.data )
-	{
-		ERROR("out of memory img2");
-		goto error;
-	}
-	
-	callback_data.image_buffer = img2.data;
-	callback_data.max_bytes = MAX_CAM_WIDTH_PADDED * MAX_CAM_HEIGHT_PADDED;
-	callback_data.bytes_written = 0;
-	
-    still_port->userdata = (struct MMAL_PORT_USERDATA_T *)&callback_data;
-	
-	// DEBUG("queue_length-Kram");
-    num = mmal_queue_length(pool_out->queue);
-
-	// TODO I don't really understand what this does.
-    for ( q=0; q<num; q++ )
-    {
-       MMAL_BUFFER_HEADER_T *buffer = mmal_queue_get( pool_out->queue );
-
-       if (!buffer)
-	   {
-          ERROR("Unable to get a required buffer %d from pool queue", q);
-		  goto error;
-	  }
-
-       if (mmal_port_send_buffer(still_port, buffer)!= MMAL_SUCCESS)
-	   {
-          ERROR("Unable to send a buffer to encoder output port (%d)", q);
-		  goto error;
-	  }
-    }
 	
 	DEBUG("start fft frame 1");
 
@@ -400,6 +371,48 @@ int main(int argc, char *argv[])
 	DEBUG( "fft gpu frame 1 done" );
 	
 	
+	
+	/*
+	* Second Frame
+	*
+	*/
+	img2.width = MAX_CAM_WIDTH_PADDED;
+	img2.height = MAX_CAM_HEIGHT_PADDED;
+	img2.data = calloc( MAX_CAM_WIDTH_PADDED * MAX_CAM_HEIGHT_PADDED, sizeof( uint8_t ));
+	if( !img2.data )
+	{
+		ERROR("out of memory img2");
+		goto error;
+	}
+	
+	callback_data.image_buffer = img2.data;
+	callback_data.max_bytes = MAX_CAM_WIDTH_PADDED * MAX_CAM_HEIGHT_PADDED;
+	callback_data.bytes_written = 0;
+	callback_data.current_frame = 0;
+	
+    still_port->userdata = (struct MMAL_PORT_USERDATA_T *)&callback_data;
+	
+	// DEBUG("queue_length-Kram");
+    num = mmal_queue_length(pool_out->queue);
+
+	// TODO I don't really understand what this does.
+    for ( q=0; q<num; q++ )
+    {
+       MMAL_BUFFER_HEADER_T *buffer = mmal_queue_get( pool_out->queue );
+
+       if (!buffer)
+	   {
+          ERROR("Unable to get a required buffer %d from pool queue", q);
+		  goto error;
+	  }
+
+       if (mmal_port_send_buffer(still_port, buffer)!= MMAL_SUCCESS)
+	   {
+          ERROR("Unable to send a buffer to encoder output port (%d)", q);
+		  goto error;
+	  }
+    }
+		
 	DEBUG("starting 2nd capture");
     if ( mmal_port_parameter_set_boolean( still_port, MMAL_PARAMETER_CAPTURE, 1 ) != MMAL_SUCCESS)
     {
@@ -420,9 +433,11 @@ int main(int argc, char *argv[])
 	
 	DEBUG("end capture second shot");
 	
+	vcos_semaphore_delete(&callback_data.complete_semaphore);
+	
 	// DEBUG - FFT mit Beugungsmuster überprüfen
 	// img2 wird mit senkrechtem Strich leicht nach rechts unten verschoben überschrieben
-	create_sample_image( &img2, 23, 17 );
+	// create_sample_image( &img2, 23, 17 );
 
 	DEBUG("GPU phase correlation");
 
@@ -480,8 +495,18 @@ int main(int argc, char *argv[])
 
 	return 0;
 
-error:	
-	mmal_component_destroy( camera_component );
+error:
+	vcos_semaphore_delete(&callback_data.complete_semaphore);
+
+
+	if( still_port ) {
+		mmal_port_disable( still_port );
+	}
+	if( camera_component )
+	{
+		mmal_component_disable( camera_component );
+		mmal_component_destroy( camera_component );
+	}
 	
 	return (-1);
 

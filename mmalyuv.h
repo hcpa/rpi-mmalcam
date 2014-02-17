@@ -17,6 +17,8 @@
 #define MAX_CAM_HEIGHT 1024
 #define MAX_CAM_HEIGHT_PADDED 1024
 
+#define MAX_FRAMES 3 
+
 
 
 // TODO: WTF does this stand for?
@@ -28,6 +30,7 @@ typedef struct
    void *image_buffer;			/// File handle to write buffer data to
    uint32_t max_bytes;
    uint32_t bytes_written;
+   uint32_t current_frame;
    VCOS_SEMAPHORE_T complete_semaphore; /// semaphore which is posted when we reach end of frame (indicates end of capture or fault)
    MMAL_POOL_T *camera_pool;
 } PORT_USERDATA;
