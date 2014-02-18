@@ -21,7 +21,7 @@ static int keep_looping;
 static int shift_x;
 static int shift_y;
 
-static long millis()
+static uint32_t millis()
 {
 	struct timespec tt;
 	clock_gettime(CLOCK_MONOTONIC,&tt);
@@ -62,10 +62,10 @@ static int dbg_load_stars( pix_y_t *pic )
 
 	dat = pic->data;
 	for( j = 0; j < pic->height; j++ )
-		for( i = 0; i < pic->width; i++ )
+		for( i = 0; i < pic->width; i++,dat++ )
 		{
-			int color = gdImageGetPixel( image, i+DBG_PAD_X, j+DBG_PAD_Y );
-			*dat = (((color>>16) & 0xff) + ((color>>8) & 0xff) + (color & 0xff))/3;
+			// This is working fine for grayscale pics. For RGB it just takes the blue component into account.
+			*dat = 0xff & gdImageGetPixel( image, i+DBG_PAD_X, j+DBG_PAD_Y );
 		}
 	return(0);
 }
@@ -277,6 +277,7 @@ int main(int argc, char *argv[])
 	// struct GPU_FFT *frame1_fft_gpu;
 	float peak;
 	int32_t xloc, yloc;
+	uint32_t bef, aft; 
 	
 
 	
@@ -324,7 +325,6 @@ int main(int argc, char *argv[])
 	DEBUG("sleeping for some time have exposure adjust automatically");
 	// results show: sleeping time can be much shorter, tested down to 2ms
 	// although then exposure and awb seem to be somewhat off and image size huge 
-	// next frames can go with a much shorter exposure like 30ms
     vcos_sleep(300);
 
 	img1.width = MAX_CAM_WIDTH_PADDED;
@@ -359,7 +359,6 @@ int main(int argc, char *argv[])
 	// DEBUG
 	// overwrite first frame with stars 
 	dbg_copy_stars( &img1, &star_base, DBG_PAD_X, DBG_PAD_Y );
-	y_int_save( img1.data, img1.width, img1.height, "img1.jpg" );
 	
 	
 	// GPU FFT
@@ -389,7 +388,8 @@ int main(int argc, char *argv[])
 	callback_data.max_bytes = MAX_CAM_WIDTH_PADDED * MAX_CAM_HEIGHT_PADDED;
 
 
-	keep_looping = 0;
+	keep_looping = 1;
+	bef = millis();
 	do {
 		callback_data.bytes_written = 0;
 		callback_data.current_frame = 0;
@@ -400,8 +400,9 @@ int main(int argc, char *argv[])
 		}
 
 		// DEBUG overwrite frame with stars
-		shift_x += random()&&0x1f - 16;
-		shift_y += random()&&0x1f - 16;
+		shift_x += (random()&0x1f) - 16;
+		shift_y += (random()&0x1f) - 16;
+
 		if( abs(shift_x) > DBG_PAD_X - 15  )
 			shift_x = 0;
 		if( abs(shift_y) > DBG_PAD_Y - 15 )
@@ -410,8 +411,7 @@ int main(int argc, char *argv[])
 
 		dbg_copy_stars( &img2, &star_base, DBG_PAD_X + shift_x, DBG_PAD_Y + shift_y );
 		
-		y_int_save( img2.data, img2.width, img2.height, "img2.jpg" );
-		
+	
 		// TODO we could save a lot of time when calculating the FFT of the first pic in advance
 		if( pixPhaseCorrelate_GPU( &img1, &img2, &peak, &xloc, &yloc ) )
 		{
@@ -424,13 +424,17 @@ int main(int argc, char *argv[])
 		
 		// TODO Motor control goes here
 
-		shift_x += xloc;
-		shift_y += yloc;
+		shift_x -= xloc;
+		shift_y -= yloc;
 		
 		if( abs(shift_x) > DBG_PAD_X - 15  )
 			shift_x = 0;
 		if( abs(shift_y) > DBG_PAD_Y - 15 )
 			shift_y = 0;
+		
+		aft = millis();
+		DEBUG("loop in %5d millis", aft-bef );
+		bef = aft;
 
 	} while( keep_looping );
 

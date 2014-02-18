@@ -21,9 +21,6 @@ Done
 - stabilize after failed fft_gpu -> seems like camera access is not returned in case
   of gpu error
 - add/average multiple images
-
-
-Todo
 - Branch "permanent_run": optimize for permanent run, memory leaks, files, etc
   structure
   dbg load stars( padding 128 pixels each side ) - 1280x1280
@@ -39,6 +36,10 @@ Todo
 		  - dbg: log (shift_x, shift_y), save it in global variables
 	- end loop
 
+
+Todo
+- check for memory leaks etc
+- it's time to connect it to arduino. uiuiui.
 - low light performance
 - denoise image
 - control callback / set camera parameters like exposure time, white balance, iso
