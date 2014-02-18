@@ -4,6 +4,9 @@
 #include <math.h>
 #include <unistd.h>
 #include <gd.h>
+
+#include <mcheck.h>
+
 #include <interface/mmal/mmal.h>
 #include <interface/mmal/mmal_encodings.h>
 #include <interface/mmal/util/mmal_default_components.h>
@@ -17,16 +20,23 @@
 #include "fft.h"
 #include "fft_gpu.h"
 
+//#define HC_DEBUG
+
 static int keep_looping;
+
+#ifdef HC_DEBUG
 static int shift_x;
 static int shift_y;
+#endif /* HC_DEBUG */
 
+#ifdef HC_DEBUG
 static uint32_t millis()
 {
 	struct timespec tt;
 	clock_gettime(CLOCK_MONOTONIC,&tt);
 	return tt.tv_sec*1000l + tt.tv_nsec/1000000;
 }
+#endif /* HC_DEBUG */
 
 
 static void signal_handler(int signal_number)
@@ -38,6 +48,7 @@ static void signal_handler(int signal_number)
 }
 
 
+#ifdef HC_DEBUG
 static int dbg_load_stars( pix_y_t *pic )
 {
 	int i, j;
@@ -89,7 +100,7 @@ static int dbg_copy_stars( pix_y_t *dst, pix_y_t *src, int sh_x, int sh_y )
 	}
 	return (0);
 }
-
+#endif /* HC_DEBUG */
 
 static void y_writer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
 {
@@ -273,17 +284,23 @@ int main(int argc, char *argv[])
 	MMAL_POOL_T *pool_out;
 	MMAL_PORT_T *still_port = NULL;
     PORT_USERDATA callback_data;
-	pix_y_t img1, img2, star_base;
+	pix_y_t img1, img2;
 	// struct GPU_FFT *frame1_fft_gpu;
 	float peak;
 	int32_t xloc, yloc;
+#ifdef HC_DEBUG
+	pix_y_t star_base;
 	uint32_t bef, aft; 
+#endif /* HC_DEBUG */
 	
+	mtrace();
 
-	
-
+#ifdef HC_DEBUG
 	// TODO verbose level
 	log_verbose(100);
+#else
+	log_verbose(0);
+#endif /* HC_DEBUG */
 
 	bcm_host_init();
 	
@@ -293,10 +310,12 @@ int main(int argc, char *argv[])
 		exit(-1);
 	}
 	
-	srandom(millis());
     signal(SIGINT, signal_handler);
 	
-	
+#ifdef HC_DEBUG
+	srandom(millis());
+
+
 	star_base.width = MAX_CAM_WIDTH_PADDED + 2*DBG_PAD_X;
 	star_base.height = MAX_CAM_HEIGHT_PADDED + 2*DBG_PAD_Y;
 	star_base.data = calloc( (MAX_CAM_WIDTH_PADDED + 2*DBG_PAD_X) * (MAX_CAM_HEIGHT_PADDED + 2*DBG_PAD_Y), sizeof( uint8_t ) );
@@ -305,7 +324,7 @@ int main(int argc, char *argv[])
 		exit(-1);
 	}
 	dbg_load_stars( &star_base );
-	
+#endif /* HC_DEBUG */	
 
 	if( prepare_camera( &camera_component, &still_port, &pool_out ) )
 	{
@@ -356,10 +375,11 @@ int main(int argc, char *argv[])
 	}
 	
 	
+#ifdef HC_DEBUG
 	// DEBUG
 	// overwrite first frame with stars 
 	dbg_copy_stars( &img1, &star_base, DBG_PAD_X, DBG_PAD_Y );
-	
+#endif /* HC_DEBUG */	
 	
 	// GPU FFT
 	/*
@@ -389,7 +409,11 @@ int main(int argc, char *argv[])
 
 
 	keep_looping = 1;
+
+#ifdef HC_DEBUG
 	bef = millis();
+#endif /* HC_DEBUG */
+
 	do {
 		callback_data.bytes_written = 0;
 		callback_data.current_frame = 0;
@@ -399,6 +423,7 @@ int main(int argc, char *argv[])
 			goto error;
 		}
 
+#ifdef HC_DEBUG
 		// DEBUG overwrite frame with stars
 		shift_x += (random()&0x1f) - 16;
 		shift_y += (random()&0x1f) - 16;
@@ -410,6 +435,7 @@ int main(int argc, char *argv[])
 		DEBUG( "shiftx: %d, shift_y: %d", shift_x, shift_y );
 
 		dbg_copy_stars( &img2, &star_base, DBG_PAD_X + shift_x, DBG_PAD_Y + shift_y );
+#endif /* HC_DEBUG */
 		
 	
 		// TODO we could save a lot of time when calculating the FFT of the first pic in advance
@@ -419,11 +445,12 @@ int main(int argc, char *argv[])
 			goto error;		
 		}
 		else
-	    	DEBUG("peak: %f, x: %d, y:%d", peak, xloc, yloc );
+	    	MSG("peak: %f, x: %d, y:%d", peak, xloc, yloc );
 
 		
 		// TODO Motor control goes here
 
+#ifdef HC_DEBUG
 		shift_x -= xloc;
 		shift_y -= yloc;
 		
@@ -435,13 +462,16 @@ int main(int argc, char *argv[])
 		aft = millis();
 		DEBUG("loop in %5d millis", aft-bef );
 		bef = aft;
-
+#endif /* HC_DEBUG */
 	} while( keep_looping );
 
 	
 	
 	vcos_semaphore_delete(&callback_data.complete_semaphore);
 	
+#ifdef HC_DEBUG
+	free( star_base.data );
+#endif /* HC_DEBUG */
 
 	
 	// free_fft_gpu( frame1_fft_gpu );

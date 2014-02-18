@@ -35,13 +35,10 @@ Done
 		  - send (shift_x,shift_y) to motor control (nop)
 		  - dbg: log (shift_x, shift_y), save it in global variables
 	- end loop
+- check for memory leaks etc
 
 
 Todo
-- check for memory leaks etc
-- it's time to connect it to arduino. uiuiui.
-- low light performance
-- denoise image
 - control callback / set camera parameters like exposure time, white balance, iso
   see discussion here http://www.raspberrypi.org/forum/viewtopic.php?f=43&t=61445
 	raspistill -w 1024 -h 1024 -t 1000 -ss 500000 -ex sports -ev 25
@@ -50,6 +47,9 @@ Todo
 	// mmal_port_parameter_set_uint32(camera->control, MMAL_PARAMETER_ISO, 1600);
     MMAL_PARAMETER_EXPOSUREMODE_T exp_mode = {{MMAL_PARAMETER_EXPOSURE_MODE,sizeof(MMAL_PARAM_EXPOSUREMODE_SPORTS)}, MMAL_PARAM_EXPOSUREMODE_SPORTS};
     return mmal_status_to_int(mmal_port_parameter_set(camera->control, &exp_mode.hdr));
+- it's time to connect it to arduino. uiuiui.
+- low light performance
+- denoise image
 - improve phase shift for higher resolutions. works fine up to 1536 x 1152
 
 Open questions: how to detect rotation? Is it relevant?
