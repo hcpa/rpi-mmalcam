@@ -36,6 +36,7 @@ Done
 		  - dbg: log (shift_x, shift_y), save it in global variables
 	- end loop
 - check for memory leaks etc
+- document the code
 
 
 Todo

@@ -23,6 +23,9 @@ static long millis()
 	return tt.tv_sec*1000l + tt.tv_nsec/1000000;
 }
 
+/*
+ *  In-place transposition of square matrix of complex values 
+ */
 static void in_place_transpose_square( struct GPU_FFT_COMPLEX *data, int w, int step )
 {
 	struct GPU_FFT_COMPLEX temp;
@@ -41,6 +44,11 @@ static void in_place_transpose_square( struct GPU_FFT_COMPLEX *data, int w, int 
 	
 }
 
+/*
+ *  Transpose in-place the left half of a square matrix to the upper half. 
+ *  I.e. a w/2-by-w-Matrix becomes a w-x-w/2-matrix 
+ *  The lower half of the result matrix is zeroed out.
+ */
 static void in_place_transpose_square_left_half( struct GPU_FFT_COMPLEX *data, int w, int step )
 {
 	struct GPU_FFT_COMPLEX temp;
@@ -72,6 +80,11 @@ static void in_place_transpose_square_left_half( struct GPU_FFT_COMPLEX *data, i
 	}
 }
 
+/*
+ *  Transpose in-place the top half of a square matrix to the left half. 
+ *  I.e. a w-by-w/2-Matrix becomes a w/2-x-w-matrix 
+ *  The right half of the result matrix is zeroed out.
+ */
 static void in_place_transpose_square_upper_half( struct GPU_FFT_COMPLEX *data, int w, int step )
 {
 	struct GPU_FFT_COMPLEX temp;
@@ -107,7 +120,22 @@ static void in_place_transpose_square_upper_half( struct GPU_FFT_COMPLEX *data, 
 }
 
 
-
+/* 
+ * Do a GPU-based FFT on a square(!) image, but leave out the final transposition.
+ * This is very useful for the phase correlation below
+ *
+ * This function assumes the mailbox is already created.
+ * 
+ * 1: horizontal fft for all lines
+ * 2: transpose results from left half to top half 
+ * 3: (vertical) fft for all lines (former columns) (see comment below on performance)
+ * 
+ * TODO This function does no error checking 
+ *
+ * returns pointer to struct GPU_FFT (basically, an array of complex numbers) with results
+ * return value needs to be free'd with free_fft_gpu
+ * returns NULL on error
+ */
 static struct GPU_FFT *pixDFT_GPU_no_final_transpose( pix_y_t *pic )
 {
     int i, j, ret, log2_N;
@@ -156,6 +184,14 @@ static struct GPU_FFT *pixDFT_GPU_no_final_transpose( pix_y_t *pic )
 
 }
 
+/* 
+ * Do a GPU-based FFT on a square(!) image.
+ *
+ * returns pointer to struct GPU_FFT (basically, an array of complex numbers) with results
+ * return value needs to be free'd with free_fft_gpu
+ * returns NULL on error
+ *
+ */
 struct GPU_FFT *pixDFT_GPU( pix_y_t *pic )
 {
 	struct GPU_FFT *fft;
@@ -196,13 +232,23 @@ struct GPU_FFT *pixDFT_GPU( pix_y_t *pic )
 	return fft;
 }
 
-
+/*
+ * free GPU FFT result 
+ */ 
 void free_fft_gpu( struct GPU_FFT *fft )
 {
     gpu_fft_release(fft); // Videocore memory lost if not freed !	
 }
 
-
+/* 
+ * Calculate phase correlation for 2 luminance images
+ *
+ * Sequence: FFT reference image pixr, FFT shifted image pixs, calculate cross-power spectrum,
+ * inverse FFT on result, identify maximum+coordinates. See below for details
+ * 
+ * ppeak, px and py are filled
+ * returns -1 on error, 0 otherwise 
+ */
 int pixPhaseCorrelate_GPU( pix_y_t *pixr, pix_y_t *pixs, float *ppeak, int *px, int *py )
 {
     int i, j, ret, log2_N;

@@ -8,6 +8,10 @@
 #include "log.h"
 #include "dbg_image.h"
 
+/*
+ * Save 8-bit-luminance image to JPEG via gd
+ * return -1 on error, 0 otherwise
+ */
 uint32_t y_int_save( uint8_t *data, uint32_t w, uint32_t h, char *name )
 {
 	FILE *f;
@@ -52,6 +56,10 @@ uint32_t y_int_save( uint8_t *data, uint32_t w, uint32_t h, char *name )
 	return(0);
 }
 
+/*
+ * Save float luminance image to JPEG via gd
+ * return -1 on error, 0 otherwise
+ */
 uint32_t y_float_save( float *data, uint32_t w, uint32_t h, char *name )
 {
 	FILE *f;
@@ -107,6 +115,12 @@ uint32_t y_float_save( float *data, uint32_t w, uint32_t h, char *name )
 	return(0);
 }
 
+/*
+ * Save complex matrix to JPEG via gd
+ * if magnitude is set, brightness of output pixels is abs(complex), otherwise it's atan(re/im)  
+ * 
+ * return -1 on error, 0 otherwise
+ */
 uint32_t y_complex_save( fftwf_complex *data, uint32_t magnitude, uint32_t w, uint32_t h, char *name )
 {
 	FILE *f;
@@ -187,6 +201,14 @@ uint32_t y_complex_save( fftwf_complex *data, uint32_t magnitude, uint32_t w, ui
 	return(0);
 }
 
+/*
+ * Save fftwf-complex matrix to PNG files via gd
+ *  spectrum = 1       -> save complex spectrum to <basename>-spectrum.png
+ *  phase_angle = 1    -> save complex phase angle to <basename>-phaseang.png
+ *  power_spectrum = 1 -> save complex phase angle to <basename>-powspect.png
+ * 
+ * return -1 on error, 0 otherwise
+ */
 int fftwf_result_save( fftwf_complex *data, int spectrum, int phase_angle, int power_spectrum, uint32_t w, uint32_t h, char *basename )
 {
 	FILE *f_s, *f_pa, *f_ps;
@@ -343,6 +365,14 @@ int fftwf_result_save( fftwf_complex *data, int spectrum, int phase_angle, int p
 	return(0);
 }
 
+/*
+ * Save GPU FFT-complex matrix to PNG files via gd
+ *  spectrum = 1       -> save complex spectrum to <basename>-spectrum.png
+ *  phase_angle = 1    -> save complex phase angle to <basename>-phaseang.png
+ *  power_spectrum = 1 -> save complex phase angle to <basename>-powspect.png
+ * 
+ * return -1 on error, 0 otherwise
+ */
 int gpufft_result_save( struct GPU_FFT_COMPLEX *data, int step, int spectrum, int phase_angle, int power_spectrum, uint32_t w, uint32_t h, char *basename )
 {
 	FILE *f_s, *f_pa, *f_ps;

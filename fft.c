@@ -17,7 +17,9 @@ static long millis()
 }
 
 
-
+/*
+ * create float luminance image dimensions w x h
+ */
 fpix_y_t *fpixCreate( uint32_t w, uint32_t h )
 {
 	fpix_y_t *fpix;
@@ -41,6 +43,9 @@ fpix_y_t *fpixCreate( uint32_t w, uint32_t h )
 	return fpix;
 }
 
+/*
+ * destroy float luminance image
+ */
 void fpixDestroy( fpix_y_t *fpix )
 {
 	if( !fpix )
@@ -52,6 +57,9 @@ void fpixDestroy( fpix_y_t *fpix )
 	free( fpix );
 }
 
+/*
+ * create 8-bit luminance image dimensions w x h
+ */
 pix_y_t *pixCreate( uint32_t w, uint32_t h )
 {
 	pix_y_t *pix;
@@ -75,6 +83,9 @@ pix_y_t *pixCreate( uint32_t w, uint32_t h )
 	return pix;
 }
 
+/*
+ * destroy 8-bit luminance image
+ */
 void pixDestroy( pix_y_t *pix )
 {
 	if( !pix )
@@ -378,9 +389,6 @@ fpixInverseDFT(fftwf_complex *dft,
  *      (3) It is the responsibility of the caller to release the allocated
  *          complex array by invoking fftw_free().
  */
-
-// TODO L_WITH_SHIFTING
-
 fftwf_complex *fpixDFT( fpix_y_t *fpix )
 {
 	fftwf_complex  *output;

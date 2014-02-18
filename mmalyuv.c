@@ -20,7 +20,7 @@
 #include "fft.h"
 #include "fft_gpu.h"
 
-//#define HC_DEBUG
+#define HC_DEBUG
 
 static int keep_looping;
 
@@ -30,6 +30,10 @@ static int shift_y;
 #endif /* HC_DEBUG */
 
 #ifdef HC_DEBUG
+/* 
+ *   Returns number of milliseconds since whenever
+ *   Only useful to calculate time differences
+ */
 static uint32_t millis()
 {
 	struct timespec tt;
@@ -39,6 +43,9 @@ static uint32_t millis()
 #endif /* HC_DEBUG */
 
 
+/*
+ *  Abort main loop on every signal
+ */
 static void signal_handler(int signal_number)
 {
     // Going to abort on all other signals
@@ -49,9 +56,15 @@ static void signal_handler(int signal_number)
 
 
 #ifdef HC_DEBUG
+/*
+ *  Load greyscale(!) pic from "sterne_pad.png", convert to array of bytes
+ *  returns -1 if file cannot be opened or image not be created by gd.
+ *  This is assuming a greyscale file. If RGB, it's only using the blue 
+ *  component. 
+ */
 static int dbg_load_stars( pix_y_t *pic )
 {
-	int i, j;
+	int i, j, w, h;
 	uint8_t *dat;
 	FILE *f;
 	gdImage *image;
@@ -70,25 +83,34 @@ static int dbg_load_stars( pix_y_t *pic )
 		ERROR( "cannot create image from PNG file" );
 		return (-1);
 	}
+	
+	w = gdImageSX(image) < pic->width?gdImageSX(image):pic->width;
+	h = gdImageSY(image) < pic->height?gdImageSY(image):pic->height;
 
 	dat = pic->data;
-	for( j = 0; j < pic->height; j++ )
-		for( i = 0; i < pic->width; i++,dat++ )
+	for( j = 0; j < h; j++ )
+		for( i = 0; i < w; i++,dat++ )
 		{
 			// This is working fine for grayscale pics. For RGB it just takes the blue component into account.
-			*dat = 0xff & gdImageGetPixel( image, i+DBG_PAD_X, j+DBG_PAD_Y );
+			*dat = 0xff & gdImageGetPixel( image, i, j );
 		}
+	gdImageDestroy( image );
 	return(0);
 }
 
-static int dbg_copy_stars( pix_y_t *dst, pix_y_t *src, int sh_x, int sh_y )
+
+/*
+ * copy (luminance) data from src to dst, offset by sh_x and sh_y both >= 0
+ * returns -1 if index out of bounds
+ */
+static int dbg_copy_stars( pix_y_t *dst, pix_y_t *src, unsigned sh_x, unsigned sh_y )
 {
-	int j;
+	unsigned j;
 	uint8_t *src_b, *dst_b;
 	
-	if( src->width + sh_x < dst->width )
+	if( dst->width + sh_x > src->width )
 		return (-1);
-	if( src->height + sh_y < dst->height )
+	if( dst->height + sh_y > src->height )
 		return (-1);
 	
 	
@@ -102,6 +124,16 @@ static int dbg_copy_stars( pix_y_t *dst, pix_y_t *src, int sh_x, int sh_y )
 }
 #endif /* HC_DEBUG */
 
+
+/*
+ *  Callback to get YUV frame data from camera, average multiple frames
+ *  
+ *	Only pData->max_bytes bytes are saved, this is calculated to be only the 
+ *  Y (luminance) data at the beginning of the memory block. 
+ *   
+ *  First frame (pData->current_frame) is copied, other frames are 
+ *  added in using floating average
+ */
 static void y_writer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
 {
 	int complete = 0;
@@ -110,6 +142,7 @@ static void y_writer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
 	
 	if( pData )
 	{
+		// 									copy max_bytes at most, calculated to be width*height(*sizeof(byte))  
 		if( buffer->length && pData->image_buffer && pData->bytes_written < pData->max_bytes )
 		{
 			uint32_t to_write = 0;
@@ -137,7 +170,8 @@ static void y_writer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
 			pData->bytes_written += to_write;
 		}
 		
-	
+		// TODO: Could I set complete=1 already if the Y-data is finished? Or do I have to wait until 
+		// flags are set?  (MMAL_BUFFER_HEADER_FLAG_FRAME_END | MMAL_BUFFER_HEADER_FLAG_TRANSMISSION_FAILED)
 		if( buffer->flags & (MMAL_BUFFER_HEADER_FLAG_FRAME_END | MMAL_BUFFER_HEADER_FLAG_TRANSMISSION_FAILED) )
 			complete = 1;
 	}
@@ -149,7 +183,7 @@ static void y_writer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
 	mmal_buffer_header_release(buffer);
 	
     // TODO I have no idea what this is doing, the "manual" in mmal.h doesn't mention it
-	// but the thing brakes without so let's do it for now
+	// but the thing breaks without so let's do it
     if( port->is_enabled )
     {
        MMAL_STATUS_T status = MMAL_SUCCESS;
@@ -169,7 +203,15 @@ static void y_writer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
 	
 }
 
-
+/* 
+ * Prepare the camera component and the still port, set the format for the still port, 
+ * enable camera component, create buffer pool
+ * 
+ * This is more or less a direct copy from RaspiStillYUV.c. This is made a function 
+ * to be out of the way in main()
+ *
+ * return -1 on error
+ */
 static int prepare_camera( MMAL_COMPONENT_T **camera_component, MMAL_PORT_T **still_port, MMAL_POOL_T **pool_out )
 {
 	MMAL_STATUS_T status;
@@ -215,7 +257,7 @@ static int prepare_camera( MMAL_COMPONENT_T **camera_component, MMAL_PORT_T **st
 	status = mmal_port_format_commit( *still_port );
 	if( status != MMAL_SUCCESS )
 	{
-		ERROR( "cannot create commit format" );
+		ERROR( "cannot commit image format" );
 		mmal_component_destroy( *camera_component );
 		return(-1);
 	}
@@ -239,6 +281,11 @@ static int prepare_camera( MMAL_COMPONENT_T **camera_component, MMAL_PORT_T **st
 	return 0;
 }
 
+/*
+ * Capture frames: set buffer pool, set capture parameter, wait for semaphore
+ *
+ * return (-1) if error with buffer pool or capture  
+ */
 static int capture_frames( PORT_USERDATA *callback_data, MMAL_PORT_T *still_port, MMAL_POOL_T *pool_out, int frames )
 {
 	for( callback_data->current_frame = 0; callback_data->current_frame < frames; callback_data->current_frame++ )
@@ -445,7 +492,7 @@ int main(int argc, char *argv[])
 			goto error;		
 		}
 		else
-	    	MSG("peak: %f, x: %d, y:%d", peak, xloc, yloc );
+	    	MSG("peak: %.2f, x: %d, y:%d", peak, xloc, yloc );
 
 		
 		// TODO Motor control goes here
