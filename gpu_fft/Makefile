@@ -14,18 +14,10 @@ O = $(C:.c=.o)
 
 B = libgpu_fft.a
 
-CC = gcc
-CFLAGS = -g
-# -Wall -pedantic -std=c99
-
 all: $(B)
 
 $(B):	$(H) $(O)
 	ar rcs $(B) $(O)
-
-.c.o:
-	${CC} ${CFLAGS} -c $< -o $@
-
 
 clean:
 	rm -f $(B) $(O)

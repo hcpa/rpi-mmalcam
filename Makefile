@@ -3,40 +3,43 @@
 
 SHELL = /bin/bash
 
-prefix      = 
-exec_prefix = 
-bindir      = /usr/local/bin
-mandir      = /usr/local/man
+VPATH = .:./gpu_fft
+
+SUBDIRS = gpu_fft
 
 CC      = gcc
-#CFLAGS  = -g -Wall -DPROGRAM_VERSION=\"1.0\" -DPROGRAM_NAME=\"mmaltest\" -I/opt/vc/include -I/opt/vc/include/interface/vcos/pthreads/ -I/opt/vc/include/interface/vmcs_host/linux/
-CFLAGS  = -g -Wall -DPROGRAM_VERSION=\"1.0\" -DPROGRAM_NAME=\"mmalyuv\" -I../userland -I../userland/host_applications/linux/libs/bcm_host/include/ -I/opt/vc/include/interface/vcos/pthreads/ -I/opt/vc/include/interface/vmcs_host/linux/
-
-#LDFLAGS = -L/opt/vc/lib -lmmal -lmmal_core -lmmal_util -lbcm_host -lvcos -lgd -lfftw3f
-LDFLAGS = -L/home/pi/src/userland/build/lib -L./gpu_fft -lmmal -lmmal_core -lmmal_util -lbcm_host -lvcos -lgd -lfftw3f -lgpu_fft
 
 OBJS  = log.o dbg_image.o fft.o fft_gpu.o
+GOBJS = gpu_fft.c gpu_fft_shaders.c gpu_fft_twiddles.c hello_fft.c mailbox.c
 
-all: mmaltest mmalyuv
 
-install: all
-	mkdir -p ${DESTDIR}${bindir}
-	install -m 755 test ${DESTDIR}${bindir}
+ifdef OPTIM
+  export CFLAGS  = -O3 -Wall -DPROGRAM_VERSION=\"1.0\" -DPROGRAM_NAME=\"mmaltest\" -I/opt/vc/include -I/opt/vc/include/interface/vcos/pthreads/ -I/opt/vc/include/interface/vmcs_host/linux/
+  export LDFLAGS = -L/opt/vc/lib -L./gpu_fft -lmmal -lmmal_core -lmmal_util -lbcm_host -lvcos -lgd -lfftw3f -lgpu_fft
+else
+  export CFLAGS  = -g -Wall -DPROGRAM_VERSION=\"1.0\" -DPROGRAM_NAME=\"mmalyuv\" -I/home/pi/src/userland -I/home/pi/src/userland/host_applications/linux/libs/bcm_host/include/ -I/opt/vc/include/interface/vcos/pthreads/ -I/opt/vc/include/interface/vmcs_host/linux/
+  export LDFLAGS = -L/home/pi/src/userland/build/lib -L./gpu_fft -lmmal -lmmal_core -lmmal_util -lbcm_host -lvcos -lgd -lfftw3f -lgpu_fft
+endif
+
+
+all: mmalyuv $(SUBDIRS)
 
 mmaltest: mmaltest.o $(OBJS)
 	$(CC) -o mmaltest mmaltest.o $(OBJS) $(LDFLAGS)
 
-mmalyuv: mmalyuv.o $(OBJS) mmalyuv.h gpu_fft/libgpu_fft.a
+mmalyuv: mmalyuv.o $(OBJS) libgpu_fft.a
 	$(CC) -o mmalyuv mmalyuv.o $(OBJS) $(LDFLAGS)
 	sudo chown root mmalyuv
 	sudo chmod u+s mmalyuv
+	
+libgpu_fft.a: gpu_fft
 
-.c.o:
-	${CC} ${CFLAGS} -c $< -o $@
+$(SUBDIRS)::
+	$(MAKE) -C $@ $(MAKECMDGOALS)
 
-clean:
-	rm -f core* *.o test
 
-distclean: clean
-	rm -rf *~ *.jpg
+.PHONY : clean 
+
+clean: $(SUBDIRS)
+	-rm -f core* $(OBJS) mmalyuv mmaltest
 

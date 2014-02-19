@@ -37,9 +37,11 @@ Done
 	- end loop
 - check for memory leaks etc
 - document the code
+- optimize Makefile - improved, but I'm still no hero in writing Makefiles
 
 
 Todo
+- fft_gpu plan caching
 - control callback / set camera parameters like exposure time, white balance, iso
   see discussion here http://www.raspberrypi.org/forum/viewtopic.php?f=43&t=61445
 	raspistill -w 1024 -h 1024 -t 1000 -ss 500000 -ex sports -ev 25
