@@ -38,10 +38,13 @@ Done
 - check for memory leaks etc
 - document the code
 - optimize Makefile - improved, but I'm still no hero in writing Makefiles
+- fft_gpu plan caching - not working. taking second picture fails, I guess due
+  to the video-memory footprint. debugger is of no use here.
+  preparing and freeing the memory each time comes at a cost of 135ms (5%). That's
+  not worth the hassle.
 
 
 Todo
-- fft_gpu plan caching
 - control callback / set camera parameters like exposure time, white balance, iso
   see discussion here http://www.raspberrypi.org/forum/viewtopic.php?f=43&t=61445
 	raspistill -w 1024 -h 1024 -t 1000 -ss 500000 -ex sports -ev 25

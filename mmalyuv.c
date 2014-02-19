@@ -465,6 +465,7 @@ int main(int argc, char *argv[])
 		callback_data.bytes_written = 0;
 		callback_data.current_frame = 0;
 
+		WARN("capture_frame");
 		if( capture_frames( &callback_data, still_port, pool_out, MAX_FRAMES ) ) {
 			ERROR( "failed to capture shot x" );
 			goto error;
@@ -481,11 +482,13 @@ int main(int argc, char *argv[])
 			shift_y = 0;
 		DEBUG( "shiftx: %d, shift_y: %d", shift_x, shift_y );
 
+		WARN("dbg_copy_stars");
 		dbg_copy_stars( &img2, &star_base, DBG_PAD_X + shift_x, DBG_PAD_Y + shift_y );
 #endif /* HC_DEBUG */
 		
 	
 		// TODO we could save a lot of time when calculating the FFT of the first pic in advance
+		WARN("pixPhaseCorrelate_GPU()");
 		if( pixPhaseCorrelate_GPU( &img1, &img2, &peak, &xloc, &yloc ) )
 		{
 			ERROR("cannot phase correlate");
@@ -521,7 +524,7 @@ int main(int argc, char *argv[])
 #endif /* HC_DEBUG */
 
 	
-	// free_fft_gpu( frame1_fft_gpu );
+	cleanup_fft_gpu();
 
 	free( img1.data );
 	free( img2.data );

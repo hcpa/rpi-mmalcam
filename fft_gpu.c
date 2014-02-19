@@ -16,6 +16,12 @@
 
 static int mb = -1;
 
+#define CACHE_FFTR 0
+#define CACHE_FFTS 1
+#define CACHE_FFTI 2
+
+static struct GPU_FFT *fft_c[CACHE_FFTI+1];
+
 static long millis()
 {
 	struct timespec tt;
@@ -43,6 +49,51 @@ static void in_place_transpose_square( struct GPU_FFT_COMPLEX *data, int w, int 
 		}
 	
 }
+
+static int init_fft_cache( pix_y_t *pix )
+{
+	int ret; 
+	int log2_N = (int)round(log2(pix->width));	
+
+	if( mb < 0 )
+	{
+		mb = mbox_open();
+		if( mb < 0 ){
+			ERROR( "cannot open mailbox" );
+			return (-1);
+		}
+	}
+	
+    ret = gpu_fft_prepare(mb, log2_N, GPU_FFT_FWD, pix->height, fft_c+CACHE_FFTR); // call once
+
+    switch(ret) {
+        case -1: ERROR("Unable to enable V3D. Please check your firmware is up to date."); return (-1);
+        case -2: ERROR("log2_N=%d not supported.  Try between 8 and 17.", log2_N);         return (-1);
+        case -3: ERROR("Out of memory round1.  Try a smaller batch or increase GPU memory.");  return (-1);
+        case -4: ERROR("Cannot open /dev/mem, must run as root.");  return (-1);
+    }
+
+    ret = gpu_fft_prepare(mb, log2_N, GPU_FFT_FWD, pix->height, fft_c+CACHE_FFTS); // call once
+
+    switch(ret) {
+        case -1: ERROR("Unable to enable V3D. Please check your firmware is up to date."); return (-1);
+        case -2: ERROR("log2_N=%d not supported.  Try between 8 and 17.", log2_N);         return (-1);
+        case -3: ERROR("Out of memory round1.  Try a smaller batch or increase GPU memory.");  return (-1);
+        case -4: ERROR("Cannot open /dev/mem, must run as root.");  return (-1);
+    }
+
+
+    ret = gpu_fft_prepare(mb, log2_N, GPU_FFT_REV, pix->height, fft_c+CACHE_FFTI); // call once
+
+    switch(ret) {
+        case -1: ERROR("CACHE_FFTI: Unable to enable V3D. Please check your firmware is up to date."); return (-1);
+        case -2: ERROR("CACHE_FFTI: log2_N=%d not supported.  Try between 8 and 17.", log2_N);         return (-1);
+        case -3: ERROR("CACHE_FFTI: Out of memory round1.  Try a smaller batch or increase GPU memory.");  return (-1);
+        case -4: ERROR("CACHE_FFTI: Cannot open /dev/mem, must run as root.");  return (-1);
+    }
+	return (0);
+}
+
 
 /*
  *  Transpose in-place the left half of a square matrix to the upper half. 
@@ -136,27 +187,25 @@ static void in_place_transpose_square_upper_half( struct GPU_FFT_COMPLEX *data, 
  * return value needs to be free'd with free_fft_gpu
  * returns NULL on error
  */
-static struct GPU_FFT *pixDFT_GPU_no_final_transpose( pix_y_t *pic )
+static int pixDFT_GPU_no_final_transpose( unsigned cache_idx, pix_y_t *pic )
 {
-    int i, j, ret, log2_N;
+    int i, j, ret;
     struct GPU_FFT_COMPLEX *base;
-    struct GPU_FFT *fft;
 	uint8_t *picdata;
 	
-	log2_N = (int)round(log2(pic->width));
-
-    ret = gpu_fft_prepare(mb, log2_N, GPU_FFT_FWD, pic->height, &fft); // call once
-
-    switch(ret) {
-        case -1: ERROR("Unable to enable V3D. Please check your firmware is up to date."); return NULL;
-        case -2: ERROR("log2_N=%d not supported.  Try between 8 and 17.", log2_N);         return NULL;
-        case -3: ERROR("Out of memory round1.  Try a smaller batch or increase GPU memory.");  return NULL;
-        case -4: ERROR("Cannot open /dev/mem, must run as root.");  return NULL;
-    }
+	if( !fft_c[cache_idx] )
+	{
+		ret = init_fft_cache( pic );
+		if( ret != 0 )
+		{
+			ERROR("Error Initializing GPU FFT plan cache");
+			return (-1);		
+		}
+	}
 
 	for( j=0; j < pic->height; j++ )
 	{
-		base = fft->in + j*fft->step; // input buffer
+		base = fft_c[cache_idx]->in + j*fft_c[cache_idx]->step; // input buffer
 		picdata = pic->data + j*pic->width;
         for( i=0; i<pic->width ; i++,picdata++ )
 		{
@@ -167,20 +216,20 @@ static struct GPU_FFT *pixDFT_GPU_no_final_transpose( pix_y_t *pic )
 
 	usleep(1); // Yield to OS
 
-	gpu_fft_execute(fft); 
+	gpu_fft_execute(fft_c[cache_idx]); 
 
 
 	// In-place transposition of the result
-	in_place_transpose_square_left_half( fft->out, pic->height, fft->step );	
+	in_place_transpose_square_left_half( fft_c[cache_idx]->out, pic->height, fft_c[cache_idx]->step );	
 	
 	usleep(1); // Yield to OS
 	// this execution will work from fft->out back to fft->in
 	// If we just transpose the left half of the matrix to the upper half
 	// it's not necessary to perform the FFT on all rows. half of the rows
 	// would be sufficient. but since gpu_fft is so fast, it's not really an issue.
-	gpu_fft_execute(fft); // call one or many times
+	gpu_fft_execute(fft_c[cache_idx]); // call one or many times
 
-	return fft;
+	return 0;
 
 }
 
@@ -192,9 +241,9 @@ static struct GPU_FFT *pixDFT_GPU_no_final_transpose( pix_y_t *pic )
  * returns NULL on error
  *
  */
-struct GPU_FFT *pixDFT_GPU( pix_y_t *pic )
+struct GPU_FFT *pixDFT_GPU( unsigned cache_idx, pix_y_t *pic )
 {
-	struct GPU_FFT *fft;
+	int ret;
 	
 	if( !pic )
 	{
@@ -210,27 +259,19 @@ struct GPU_FFT *pixDFT_GPU( pix_y_t *pic )
 		return (NULL);
 	}
 	
-	if( mb < 0 )
-	{
-		mb = mbox_open();
-		if( mb < 0 ){
-			ERROR( "cannot open mailbox" );
-			return (NULL);
-		}
-	}
-	
-	fft = pixDFT_GPU_no_final_transpose( pic );
-	if( !fft )
+	ret = pixDFT_GPU_no_final_transpose( cache_idx, pic );
+	if( ret != 0 )
 	{
 		ERROR("pixDFT_GPU_no_final_transpose failed");
 		return NULL;
 	}
 	
 	// Transpose back
-	in_place_transpose_square_upper_half( fft->in, pic->height, fft->step );
+	in_place_transpose_square_upper_half( fft_c[cache_idx]->in, pic->height, fft_c[cache_idx]->step );
 
-	return fft;
+	return fft_c[cache_idx];
 }
+
 
 /*
  * free GPU FFT result 
@@ -239,6 +280,20 @@ void free_fft_gpu( struct GPU_FFT *fft )
 {
     gpu_fft_release(fft); // Videocore memory lost if not freed !	
 }
+
+void cleanup_fft_gpu()
+{
+	if( fft_c[CACHE_FFTR] ) { 
+		free_fft_gpu( fft_c[CACHE_FFTR] ); fft_c[CACHE_FFTR] = NULL;
+	}
+	if( fft_c[CACHE_FFTS] ) {
+		free_fft_gpu( fft_c[CACHE_FFTS] ); fft_c[CACHE_FFTS] = NULL;
+	}
+	if( fft_c[CACHE_FFTI] ) {
+		free_fft_gpu( fft_c[CACHE_FFTI] ); fft_c[CACHE_FFTI] = NULL;
+	}
+}
+
 
 /* 
  * Calculate phase correlation for 2 luminance images
@@ -251,9 +306,8 @@ void free_fft_gpu( struct GPU_FFT *fft )
  */
 int pixPhaseCorrelate_GPU( pix_y_t *pixr, pix_y_t *pixs, float *ppeak, int *px, int *py )
 {
-    int i, j, ret, log2_N;
+    int i, j, ret;
     struct GPU_FFT_COMPLEX *base_r, *base_s, *base_i;
-    struct GPU_FFT *fftr, *ffts, *ffti;
 	float maxval;
 	int xmaxloc, ymaxloc;
 
@@ -275,46 +329,38 @@ int pixPhaseCorrelate_GPU( pix_y_t *pixr, pix_y_t *pixs, float *ppeak, int *px, 
 		return (-1);
 	}
 	
-	if( mb < 0 )
+	if( !fft_c[CACHE_FFTR] || !fft_c[CACHE_FFTS] || !fft_c[CACHE_FFTI] )
 	{
-		mb = mbox_open();
-		if( mb < 0 ){
-			ERROR( "cannot open mailbox" );
-			return (-1);
+		unsigned long t = millis();
+		ret = init_fft_cache( pixr );
+		WARN("init_fft_cache %ld ms", millis()-t );
+		if( ret != 0 )
+		{
+			ERROR("Error Initializing GPU FFT plan cache");
+			return (-1);		
 		}
 	}
 
 
 	// FFT pixr
-	fftr = pixDFT_GPU_no_final_transpose( pixr );
-	if( !fftr )
+	ret = pixDFT_GPU_no_final_transpose( CACHE_FFTR, pixr );
+	if( ret != 0 )
 	{
-		ERROR("pixDFT_GPU_no_final_transpose failed");
+		ERROR("pixDFT_GPU_no_final_transpose failed for pixr");
 		return (-1);
 	}
-	// RESULT IS NOW TRANSPOSED IN fftr->in 
+	// RESULT IS NOW TRANSPOSED IN fft_c[CACHE_FFTR]->in 
 
 	
 	// FFT pixs
-	ffts = pixDFT_GPU_no_final_transpose( pixs );
-	if( !ffts )
+	ret = pixDFT_GPU_no_final_transpose( CACHE_FFTS, pixs );
+	if( ret != 0 )
 	{
-		ERROR("pixDFT_GPU_no_final_transpose failed");
+		ERROR("pixDFT_GPU_no_final_transpose failed for pixs");
 		return (-1);
 	}
-	// RESULT IS NOW TRANSPOSED IN ffts->in 
+	// RESULT IS NOW TRANSPOSED IN fft_c[CACHE_FFTS]->in 
 
-
-	log2_N = (int)round(log2(pixr->width));
-
-    ret = gpu_fft_prepare(mb, log2_N, GPU_FFT_REV, pixr->height, &ffti); // call once
-
-    switch(ret) {
-        case -1: ERROR("Unable to enable V3D. Please check your firmware is up to date."); return (-1);
-        case -2: ERROR("log2_N=%d not supported.  Try between 8 and 17.", log2_N);         return (-1);
-        case -3: ERROR("Out of memory round1.  Try a smaller batch or increase GPU memory.");  return (-1);
-        case -4: ERROR("Cannot open /dev/mem, must run as root.");  return (-1);
-    }
 
 
 	// calculate cross-power spectrum
@@ -323,9 +369,9 @@ int pixPhaseCorrelate_GPU( pix_y_t *pixr, pix_y_t *pixs, float *ppeak, int *px, 
 	// TODO Why is the cross power spectrum in fft.c 30% faster?
 	for( j = 0; j < pixr->width/2; j++ )
 	{
-		base_r = fftr->in + j*fftr->step;
-		base_s = ffts->in + j*ffts->step;
-		base_i = ffti->in + j*ffti->step;
+		base_r = fft_c[CACHE_FFTR]->in + j*fft_c[CACHE_FFTR]->step;
+		base_s = fft_c[CACHE_FFTS]->in + j*fft_c[CACHE_FFTS]->step;
+		base_i = fft_c[CACHE_FFTI]->in + j*fft_c[CACHE_FFTI]->step;
 		for( i = 0; i < pixr->height; i++,base_r++,base_s++,base_i++ )
 		{
 			float ac, bd, bc, ad, r;
@@ -348,33 +394,28 @@ int pixPhaseCorrelate_GPU( pix_y_t *pixr, pix_y_t *pixs, float *ppeak, int *px, 
 	// This might be wrong. I may need to symmetrically fill it with the results of the calculation above and do the ffts on the full matrix.
 	// But in fact it works as it is, with just half of the matrix filled. So, I leave it as it is.
 	for( j = pixr->width/2; j < pixr->width; j++ )
-		memset(ffti->in + j*ffti->step, 0, pixr->height*sizeof(struct GPU_FFT_COMPLEX));
+		memset(fft_c[CACHE_FFTI]->in + j*fft_c[CACHE_FFTI]->step, 0, pixr->height*sizeof(struct GPU_FFT_COMPLEX));
 	
 	
-	// Free fftr, ffts
-	free_fft_gpu( fftr );
-	free_fft_gpu( ffts );
-	
-
 	// 
 	// p = InverseDFT_GPU( o );
 	usleep(1); // Yield to OS
 
-	gpu_fft_execute(ffti); // call one or many times
+	gpu_fft_execute(fft_c[CACHE_FFTI]); // call one or many times
 
 
 	// In-place transposition of the result
 	// this may be incorrect for INVERSE FFT
 	// but it works for now, see above and below
-	in_place_transpose_square_upper_half( ffti->out, pixr->height, ffti->step );	
+	in_place_transpose_square_upper_half( fft_c[CACHE_FFTI]->out, pixr->height, fft_c[CACHE_FFTI]->step );	
 	
 
 	usleep(1); // Yield to OS
 	// this execution will work from out back to in
 	// This may fail. I've set the right half of the matrix to 0 but this still may not be correct
 	// 2014-02-06 It works for now, for synthesized and real pics, so I leave it as is is. 
-	gpu_fft_execute(ffti); // call one or many times
-	// RESULT IS NOW NOT-TRANSPOSED IN ffts->in 
+	gpu_fft_execute(fft_c[CACHE_FFTI]); // call one or many times
+	// RESULT IS NOW NOT-TRANSPOSED IN fft_c[CACHE_FFTI]->in 
 	
 	// 
 	// identify peak, x, y
@@ -383,7 +424,7 @@ int pixPhaseCorrelate_GPU( pix_y_t *pixr, pix_y_t *pixs, float *ppeak, int *px, 
 	ymaxloc = 0;
 	for( j = 0; j < pixr->height; j++ )
 	{
-		base_i = ffti->in + j*ffti->step;
+		base_i = fft_c[CACHE_FFTI]->in + j*fft_c[CACHE_FFTI]->step;
 		for( i = 0; i < pixr->width; i++,base_i++ )
 		{
 			if( base_i->re > maxval )
@@ -403,10 +444,12 @@ int pixPhaseCorrelate_GPU( pix_y_t *pixr, pix_y_t *pixs, float *ppeak, int *px, 
 	*ppeak = maxval;
 	*px = xmaxloc;
 	*py = ymaxloc;
-
-	// 
-	// clean up
-	free_fft_gpu( ffti );
 	
+	{
+		unsigned long t = millis();
+	cleanup_fft_gpu();
+	WARN("cleanup_fft_gpu %ld ms", millis()-t );
+    }
+
 	return (0);
 }
