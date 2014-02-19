@@ -203,6 +203,22 @@ static void y_writer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
 	
 }
 
+/**
+ *  buffer header callback function for camera control
+ *
+ * @param port Pointer to port from which callback originated
+ * @param buffer mmal buffer header pointer
+ */
+static void camera_control_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
+{
+	
+   WARN("Camera control callback  cmd=0x%08x", buffer->cmd);
+
+   mmal_buffer_header_release(buffer);
+}
+
+
+
 /* 
  * Prepare the camera component and the still port, set the format for the still port, 
  * enable camera component, create buffer pool
@@ -212,12 +228,12 @@ static void y_writer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
  *
  * return -1 on error
  */
-static int prepare_camera( MMAL_COMPONENT_T **camera_component, MMAL_PORT_T **still_port, MMAL_POOL_T **pool_out )
+static int prepare_camera( MMAL_COMPONENT_T **camera_component, MMAL_PORT_T **still_port, MMAL_POOL_T **pool_out, int night )
 {
 	MMAL_STATUS_T status;
 	MMAL_ES_FORMAT_T *format_out;	
 	
-	DEBUG("prepare_camera");
+	MSG("prepare_camera");
 
 	status = mmal_component_create( MMAL_COMPONENT_DEFAULT_CAMERA, camera_component );
 	if( status != MMAL_SUCCESS )
@@ -234,6 +250,28 @@ static int prepare_camera( MMAL_COMPONENT_T **camera_component, MMAL_PORT_T **st
 	}
 	
 	*still_port = (*camera_component)->output[MMAL_CAMERA_CAPTURE_PORT];
+
+
+    status = mmal_port_enable((*camera_component)->control, camera_control_callback);
+
+    if (status)
+	{
+		ERROR("Unable to enable control port : error %d", status);
+		mmal_component_destroy( *camera_component );
+		return(-1);
+    }
+
+	if( night )
+	{
+		mmal_port_parameter_set_uint32( (*camera_component)->control, MMAL_PARAMETER_SHUTTER_SPEED, 500000);
+		mmal_port_parameter_set_int32(  (*camera_component)->control, MMAL_PARAMETER_EXPOSURE_COMP, 25);
+		mmal_port_parameter_set_uint32( (*camera_component)->control, MMAL_PARAMETER_ISO, 1600);
+
+	    MMAL_PARAMETER_EXPOSUREMODE_T exp_mode = {{MMAL_PARAMETER_EXPOSURE_MODE,sizeof(exp_mode)}, MMAL_PARAM_EXPOSUREMODE_SPORTS};
+	    mmal_port_parameter_set((*camera_component)->control, &exp_mode.hdr);
+	}
+
+
 
 	format_out = (*still_port)->format;
 	
@@ -335,13 +373,13 @@ int main(int argc, char *argv[])
 	// struct GPU_FFT *frame1_fft_gpu;
 	float peak;
 	int32_t xloc, yloc;
+	int night = 1;
+
 #ifdef HC_DEBUG
 	pix_y_t star_base;
 	uint32_t bef, aft; 
 #endif /* HC_DEBUG */
 	
-	mtrace();
-
 #ifdef HC_DEBUG
 	// TODO verbose level
 	log_verbose(100);
@@ -359,6 +397,16 @@ int main(int argc, char *argv[])
 	
     signal(SIGINT, signal_handler);
 	
+	
+	if( argc > 1 )
+	{
+		if( strncmp( argv[1], "-day", 4 ) == 0 )
+			night = 0;
+		else if( strncmp( argv[1], "-night", 6 ) == 0 )
+			night = 1;
+	}
+
+
 #ifdef HC_DEBUG
 	srandom(millis());
 
@@ -373,7 +421,7 @@ int main(int argc, char *argv[])
 	dbg_load_stars( &star_base );
 #endif /* HC_DEBUG */	
 
-	if( prepare_camera( &camera_component, &still_port, &pool_out ) )
+	if( prepare_camera( &camera_component, &still_port, &pool_out, night ) )
 	{
 		ERROR( "failed to prepare camera" );
 		goto error;
@@ -388,10 +436,15 @@ int main(int argc, char *argv[])
     vcos_assert(vcos_status == VCOS_SUCCESS);
 	
 	
-	DEBUG("sleeping for some time have exposure adjust automatically");
-	// results show: sleeping time can be much shorter, tested down to 2ms
-	// although then exposure and awb seem to be somewhat off and image size huge 
-    vcos_sleep(300);
+	if( !night )
+	{
+		DEBUG("sleeping for some time have exposure adjust automatically");
+		// results show: sleeping time can be much shorter, tested down to 2ms
+		// although then exposure and awb seem to be somewhat off and image size huge 
+    	vcos_sleep(300);
+	} else {
+    	vcos_sleep(2);		
+	}
 
 	img1.width = MAX_CAM_WIDTH_PADDED;
 	img1.height = MAX_CAM_HEIGHT_PADDED;

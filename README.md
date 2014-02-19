@@ -38,18 +38,18 @@ Done
 - check for memory leaks etc
 - document the code
 - optimize Makefile - improved, but I'm still no hero in writing Makefiles
-
-
-Todo
-- fft_gpu plan caching
+- fft_gpu plan caching - does not work. Will abandon branch fft_plan_cache
 - control callback / set camera parameters like exposure time, white balance, iso
   see discussion here http://www.raspberrypi.org/forum/viewtopic.php?f=43&t=61445
 	raspistill -w 1024 -h 1024 -t 1000 -ss 500000 -ex sports -ev 25
 	mmal_port_parameter_set_uint32(camera->control, MMAL_PARAMETER_SHUTTER_SPEED, 500000);
 	mmal_port_parameter_set_int32(camera->control, MMAL_PARAMETER_EXPOSURE_COMP , 25);
-	// mmal_port_parameter_set_uint32(camera->control, MMAL_PARAMETER_ISO, 1600);
-    MMAL_PARAMETER_EXPOSUREMODE_T exp_mode = {{MMAL_PARAMETER_EXPOSURE_MODE,sizeof(MMAL_PARAM_EXPOSUREMODE_SPORTS)}, MMAL_PARAM_EXPOSUREMODE_SPORTS};
-    return mmal_status_to_int(mmal_port_parameter_set(camera->control, &exp_mode.hdr));
+	mmal_port_parameter_set_uint32(camera->control, MMAL_PARAMETER_ISO, 1600);
+    MMAL_PARAMETER_EXPOSUREMODE_T exp_mode = {{MMAL_PARAMETER_EXPOSURE_MODE,sizeof(exp_mode)}, MMAL_PARAM_EXPOSUREMODE_SPORTS};
+    mmal_port_parameter_set((*camera_component)->control, &exp_mode.hdr);
+  command line -day or -night
+
+Todo
 - it's time to connect it to arduino. uiuiui.
 - low light performance
 - denoise image
